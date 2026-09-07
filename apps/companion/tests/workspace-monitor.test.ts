@@ -3,7 +3,9 @@ import type { GlobalState } from "../src/domain/model";
 import { startWorkspaceMonitor } from "../src/infrastructure/workspaceMonitor";
 
 const FIRST_STATE: GlobalState = {
-	projects: [{ name: "workbranch", root: "/tmp/workbranch", tasks: [] }],
+	projects: [
+		{ name: "workbranch", root: "/tmp/workbranch", tasks: [], baseRepos: [] },
+	],
 	errors: [],
 };
 
@@ -22,6 +24,7 @@ const SECOND_STATE: GlobalState = {
 					plans: [],
 				},
 			],
+			baseRepos: [],
 		},
 	],
 	errors: [],
@@ -252,7 +255,12 @@ describe("startWorkspaceMonitor", () => {
 	});
 
 	it("refreshes and merges only the changed root", async () => {
-		const betaProject = { name: "beta", root: "/tmp/beta", tasks: [] };
+		const betaProject = {
+			name: "beta",
+			root: "/tmp/beta",
+			tasks: [],
+			baseRepos: [],
+		};
 		const initial: GlobalState = {
 			projects: [firstProject(FIRST_STATE), betaProject],
 			errors: [],
@@ -261,6 +269,7 @@ describe("startWorkspaceMonitor", () => {
 			name: "workbranch",
 			root: "/tmp/workbranch",
 			tasks: firstProject(SECOND_STATE).tasks,
+			baseRepos: [],
 		};
 		const rendered: GlobalState[] = [];
 		const rootCalls: string[] = [];
@@ -304,7 +313,7 @@ describe("startWorkspaceMonitor", () => {
 			},
 			refreshRoot: (root) => {
 				rootCalls.push(root);
-				return Promise.resolve({ name: root, root, tasks: [] });
+				return Promise.resolve({ name: root, root, tasks: [], baseRepos: [] });
 			},
 			onState: () => undefined,
 			onError: (error) => {
@@ -372,11 +381,17 @@ describe("startWorkspaceMonitor", () => {
 	});
 
 	it("merges a root refresh into the latest externally applied state", async () => {
-		const betaBefore = { name: "beta", root: "/tmp/beta", tasks: [] };
+		const betaBefore = {
+			name: "beta",
+			root: "/tmp/beta",
+			tasks: [],
+			baseRepos: [],
+		};
 		const betaAfter = {
 			name: "beta",
 			root: "/tmp/beta",
 			tasks: firstProject(SECOND_STATE).tasks,
+			baseRepos: [],
 		};
 		const initial: GlobalState = {
 			projects: [firstProject(FIRST_STATE), betaBefore],

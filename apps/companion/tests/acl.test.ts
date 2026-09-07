@@ -105,6 +105,85 @@ describe("ACL", () => {
 		});
 	});
 
+	it("maps base repo status entries into the project domain data", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const baseRepoDocument: WorkbranchListGlobalDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "feature/login",
+							present: true,
+							dirty: true,
+							changedFiles: 3,
+							remoteAvailable: true,
+							ahead: 2,
+							behind: 1,
+						},
+					],
+				},
+			],
+		};
+
+		const parsed = parseGlobalDocument(JSON.stringify(baseRepoDocument));
+		const baseRepo = mapGlobalDocumentToState(parsed).projects[0]?.baseRepos[0];
+
+		expect(baseRepo).toEqual({
+			name: "backend",
+			baseBranch: "main",
+			branch: "feature/login",
+			present: true,
+			dirty: true,
+			changedFiles: 3,
+			remoteAvailable: true,
+			ahead: 2,
+			behind: 1,
+		});
+	});
+
+	it("defaults baseRepos to an empty array when the CLI omits it", () => {
+		const parsed = parseGlobalDocument(JSON.stringify(document));
+		expect(mapGlobalDocumentToState(parsed).projects[0]?.baseRepos).toEqual([]);
+	});
+
+	it("rejects a base repo entry that is missing a required field", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const invalidBaseRepoDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "feature/login",
+							present: true,
+							dirty: true,
+							changedFiles: 3,
+							ahead: 2,
+							behind: 1,
+						},
+					],
+				},
+			],
+		};
+
+		expect(() =>
+			parseGlobalDocument(JSON.stringify(invalidBaseRepoDocument)),
+		).toThrow("invalid workbranch global list document");
+	});
+
 	it("carries the plan summary and defaults it to empty when the CLI omits it", () => {
 		const project = document.projects.at(0);
 		const task = project?.tasks.at(0);

@@ -61,6 +61,7 @@ const BASELINE_PROJECT: Project = {
 	name: "workbranch",
 	root: "/tmp/workbranch",
 	tasks: [BASELINE_TASK],
+	baseRepos: [],
 };
 
 const UPDATED_PROJECT: Project = {

@@ -47,10 +47,23 @@ export type Task = {
 	readonly updatedAt: number;
 };
 
+export type BaseRepo = {
+	readonly name: string;
+	readonly baseBranch: string;
+	readonly branch: string;
+	readonly present: boolean;
+	readonly dirty: boolean;
+	readonly changedFiles: number;
+	readonly remoteAvailable: boolean;
+	readonly ahead: number;
+	readonly behind: number;
+};
+
 export type Project = {
 	readonly name: string;
 	readonly root: string;
 	readonly tasks: readonly Task[];
+	readonly baseRepos: readonly BaseRepo[];
 };
 
 export type GlobalError = {
