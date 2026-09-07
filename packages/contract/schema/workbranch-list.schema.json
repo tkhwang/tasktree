@@ -82,7 +82,7 @@
     "baseRepo": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind"],
+      "required": ["name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind", "inspectionError"],
       "properties": {
         "name": { "type": "string" },
         "baseBranch": { "type": "string" },
@@ -92,7 +92,11 @@
         "changedFiles": { "type": "integer", "minimum": 0 },
         "remoteAvailable": { "type": "boolean" },
         "ahead": { "type": "integer", "minimum": 0 },
-        "behind": { "type": "integer", "minimum": 0 }
+        "behind": { "type": "integer", "minimum": 0 },
+        "inspectionError": {
+          "type": ["string", "null"],
+          "enum": [null, "invalid-worktree", "git-read-failed"]
+        }
       }
     }
   }

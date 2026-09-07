@@ -106,7 +106,7 @@ agent가 작업을 시작하기 전에 `workbranch refresh <task>` 한 번이면
 
 multi-repo에서의 장점은 [AI agent workflow](docs/ai-agents.ko.md)를 참고하세요.
 
-Companion은 이 구조를 `workbranch list --global --json`으로 읽습니다. Main view는 진행 중인 task를 Plan 단계별로 모으고 project, repo, dirty/blocked 상태, 진행률, 알림을 보여줍니다. Activity timeline은 별도의 로컬 append-only log에서 읽으며, task 생성, 최신화, land/push 같은 Git 변경은 계속 CLI에서 실행합니다.
+Companion은 이 구조를 `workbranch list --global --json`으로 읽습니다. Main view 맨 위의 간결한 `00 BASE` 그룹에서 각 base repo의 branch, dirty 상태, 마지막 fetch의 `origin/<baseBranch>` 기준 ahead/behind를 확인하고, 그 아래에서 task를 Plan 단계별로 봅니다. PULL/PUSH/CHECK는 실행 버튼이 아닌 안내이며, dirty + behind는 먼저 CHECK를 표시합니다. 조회할 수 없는 repo는 UNAVAILABLE로 표시하고 정상 데이터는 유지합니다. 상태 조회 자체는 fetch하지 않습니다. Activity timeline은 별도의 로컬 append-only log에서 읽으며, task 생성, 최신화, land/push 같은 Git 변경은 계속 CLI에서 실행합니다.
 
 ## 작업 흐름
 

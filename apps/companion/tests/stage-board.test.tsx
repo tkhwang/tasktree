@@ -4,9 +4,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { type RepoNotes, repoNoteKey } from "../src/application/notes";
 import { buildMainViewModel } from "../src/application/state";
-import type { GlobalState, Plan, Repo, Task } from "../src/domain/model";
+import type {
+	BaseRepo,
+	GlobalState,
+	Plan,
+	Repo,
+	Task,
+} from "../src/domain/model";
 import { StageBoard, StageTaskBlock } from "../src/ui/StageBoard";
-import { currentWorkText } from "../src/ui/TaskRow";
+import { baseRepoFacts, currentWorkText } from "../src/ui/TaskRow";
 
 type ButtonProps = {
 	readonly "aria-label"?: string;
@@ -53,6 +59,22 @@ const cleanRepo: Repo = {
 	behind: 1,
 	changedFiles: 0,
 };
+
+function baseRepo(overrides: Partial<BaseRepo> = {}): BaseRepo {
+	return {
+		name: "workbranch",
+		baseBranch: "main",
+		branch: "main",
+		present: true,
+		dirty: false,
+		changedFiles: 0,
+		remoteAvailable: true,
+		ahead: 0,
+		behind: 0,
+		inspectionError: null,
+		...overrides,
+	};
+}
 
 function task(
 	name: string,
@@ -129,6 +151,7 @@ function renderBoard(selectedKey?: string): string {
 	return renderToStaticMarkup(
 		<StageBoard
 			activeCount={main.activeCount}
+			baseRows={main.baseRows}
 			groups={main.stageGroups}
 			idleCount={main.idleCount}
 			idleRows={main.idleRows}
@@ -143,6 +166,236 @@ function renderBoard(selectedKey?: string): string {
 }
 
 describe("StageBoard", () => {
+	it("formats base repository facts from highest-priority availability through branch drift", () => {
+		expect(
+			baseRepoFacts(
+				baseRepo({
+					inspectionError: "git-read-failed",
+					dirty: true,
+					changedFiles: 2,
+					remoteAvailable: false,
+					branch: "release",
+					ahead: 3,
+					behind: 4,
+				}),
+			),
+		).toBe("UNAVAILABLE");
+		expect(baseRepoFacts(baseRepo({ present: false }))).toBe("MISSING");
+		expect(baseRepoFacts(baseRepo({ remoteAvailable: false }))).toBe(
+			"CLEAN · NO REMOTE",
+		);
+		expect(baseRepoFacts(baseRepo({ branch: "release" }))).toBe(
+			"CLEAN · EXPECTED main",
+		);
+		expect(
+			baseRepoFacts(
+				baseRepo({ dirty: true, changedFiles: 1, ahead: 1, behind: 1 }),
+			),
+		).toBe("DIRTY 1 FILE · AHEAD 1 · BEHIND 1");
+	});
+
+	it("renders BASE after the caption and before PLAN with health and next-action guidance", () => {
+		const baseMain = buildMainViewModel({
+			projects: [
+				{
+					name: "acme",
+					root: "/tmp/acme",
+					tasks: [task("sibling-task", "planning", 10)],
+					baseRepos: [
+						baseRepo({ name: "clean" }),
+						baseRepo({ name: "ahead", ahead: 1 }),
+						baseRepo({
+							name: "dirty-ahead",
+							dirty: true,
+							changedFiles: 2,
+							ahead: 1,
+						}),
+						baseRepo({
+							name: "dirty-behind",
+							dirty: true,
+							changedFiles: 1,
+							behind: 1,
+						}),
+						baseRepo({ name: "clean-behind", behind: 1 }),
+						baseRepo({ name: "missing", present: false }),
+						baseRepo({ name: "wrong-branch", branch: "release" }),
+					],
+				},
+			],
+			errors: [],
+		});
+		const html = renderToStaticMarkup(
+			<StageBoard
+				activeCount={baseMain.activeCount}
+				baseRows={baseMain.baseRows}
+				groups={baseMain.stageGroups}
+				idleCount={baseMain.idleCount}
+				idleRows={baseMain.idleRows}
+				notes={{}}
+				nowSeconds={3_600}
+				onAction={() => undefined}
+				onSaveNote={() => undefined}
+				onSelect={() => undefined}
+				selectedKey={undefined}
+			/>,
+		);
+
+		const caption = html.indexOf("WORKTREE STATUS");
+		const base = html.indexOf(">BASE<");
+		const plan = html.indexOf(">PLAN<");
+		expect(html).toContain('aria-label="Base repositories"');
+		expect(html).toContain('data-column="base"');
+		expect(html).toContain(">00<");
+		expect(html).toContain('class="stage-group-count">7');
+		expect(base).toBeGreaterThan(caption);
+		expect(plan).toBeGreaterThan(base);
+		expect(html).toContain('data-health="ok"');
+		expect(html).toContain('data-health="warn"');
+		expect(html).toContain('data-health="bad"');
+		expect(html).toContain("CLEAN · AHEAD 1");
+		expect(html).toContain("DIRTY 2 FILES · AHEAD 1");
+		expect(html).toContain("DIRTY 1 FILE · BEHIND 1");
+		expect(html).toContain("MISSING");
+		expect(html).toContain("EXPECTED main");
+		expect(html).toContain('data-action="push">PUSH');
+		expect(html).toContain('data-action="pull">PULL');
+		expect(html).toContain('data-action="check">CHECK');
+		expect(html).toContain("Clean working tree before pulling");
+		expect(html).toContain("sibling-task");
+		expect(html).not.toMatch(/stage-base-row[^>]*(?:tabindex|role="button")/);
+		expect(html).not.toMatch(
+			/stage-base-action[^>]*(?:tabindex|role="button")/,
+		);
+		expect(html).not.toMatch(/<button[^>]*stage-base-action/);
+		const cleanRow = html.match(
+			/<div aria-label="acme clean, [^"]*"[^>]*>[\s\S]*?<\/div>/,
+		)?.[0];
+		expect(cleanRow).toBeDefined();
+		expect(cleanRow).not.toContain("stage-base-action");
+	});
+
+	it("keeps unavailable base rows safe while retaining normal siblings and tasks", () => {
+		const errorMain = buildMainViewModel({
+			projects: [
+				{
+					name: "acme",
+					root: "/tmp/acme",
+					tasks: [task("visible-task", "review", 10)],
+					baseRepos: [
+						baseRepo({
+							name: "broken",
+							branch: "release",
+							dirty: true,
+							changedFiles: 9,
+							remoteAvailable: false,
+							ahead: 2,
+							behind: 3,
+							inspectionError: "git-read-failed",
+						}),
+						baseRepo({
+							name: "invalid",
+							inspectionError: "invalid-worktree",
+						}),
+						baseRepo({ name: "healthy" }),
+					],
+				},
+			],
+			errors: [],
+		});
+		const html = renderToStaticMarkup(
+			<StageBoard
+				activeCount={errorMain.activeCount}
+				baseRows={errorMain.baseRows}
+				groups={errorMain.stageGroups}
+				idleCount={errorMain.idleCount}
+				idleRows={errorMain.idleRows}
+				notes={{}}
+				nowSeconds={3_600}
+				onAction={() => undefined}
+				onSaveNote={() => undefined}
+				onSelect={() => undefined}
+				selectedKey={undefined}
+			/>,
+		);
+		const brokenRow = html.match(
+			/<div aria-label="[^"]*broken[^"]*"[^>]*>[\s\S]*?<\/div>/,
+		)?.[0];
+		const invalidRow = html.match(
+			/<div aria-label="[^"]*invalid[^"]*"[^>]*>[\s\S]*?<\/div>/,
+		)?.[0];
+
+		expect(brokenRow).toBeDefined();
+		expect(brokenRow).toContain("branch unavailable");
+		expect(brokenRow).toContain("UNAVAILABLE");
+		expect(brokenRow).toContain("Git status could not be read");
+		expect(brokenRow).toContain('title="branch unavailable"');
+		expect(brokenRow).toContain('data-action="check">CHECK');
+		expect(brokenRow).not.toContain("CLEAN");
+		expect(brokenRow).not.toContain("NO REMOTE");
+		expect(brokenRow).not.toContain("EXPECTED");
+		expect(brokenRow).not.toContain("AHEAD");
+		expect(brokenRow).not.toContain("BEHIND");
+		expect(invalidRow).toBeDefined();
+		expect(invalidRow).toContain("Invalid base worktree");
+		expect(html).toContain("healthy");
+		expect(html).toContain("visible-task");
+	});
+
+	it("shows project prefixes only when multiple projects contribute base rows", () => {
+		const single = buildMainViewModel({
+			projects: [
+				{
+					name: "acme",
+					root: "/tmp/acme",
+					tasks: [],
+					baseRepos: [baseRepo({ name: "backend" })],
+				},
+			],
+			errors: [],
+		});
+		const multiple = buildMainViewModel({
+			projects: [
+				{
+					name: "acme",
+					root: "/tmp/acme",
+					tasks: [],
+					baseRepos: [baseRepo({ name: "backend" })],
+				},
+				{
+					name: "docs",
+					root: "/tmp/docs",
+					tasks: [],
+					baseRepos: [baseRepo({ name: "site" })],
+				},
+			],
+			errors: [],
+		});
+		const renderBase = (view: ReturnType<typeof buildMainViewModel>) =>
+			renderToStaticMarkup(
+				<StageBoard
+					activeCount={view.activeCount}
+					baseRows={view.baseRows}
+					groups={view.stageGroups}
+					idleCount={view.idleCount}
+					idleRows={view.idleRows}
+					notes={{}}
+					nowSeconds={3_600}
+					onAction={() => undefined}
+					onSaveNote={() => undefined}
+					onSelect={() => undefined}
+					selectedKey={undefined}
+				/>,
+			);
+
+		expect(renderBase(single)).not.toContain("stage-base-project");
+		expect(renderBase(multiple)).toContain(
+			'<span class="stage-base-project">acme/</span>backend',
+		);
+		expect(renderBase(multiple)).toContain(
+			'<span class="stage-base-project">docs/</span>site',
+		);
+	});
+
 	it("uses current item, summary, and distinct plan title in precedence order", () => {
 		expect(
 			currentWorkText({
@@ -217,6 +470,7 @@ describe("StageBoard", () => {
 		const html = renderToStaticMarkup(
 			<StageBoard
 				activeCount={planOnly.activeCount}
+				baseRows={planOnly.baseRows}
 				groups={planOnly.stageGroups}
 				idleCount={planOnly.idleCount}
 				idleRows={planOnly.idleRows}

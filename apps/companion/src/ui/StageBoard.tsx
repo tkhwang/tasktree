@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { type RepoNotes, repoNoteKey } from "../application/notes";
-import type { MainStageGroup, MainTaskRow } from "../application/state";
-import type { MatrixColumn, Repo } from "../domain/model";
-import { taskProgress, taskStatus } from "../domain/model";
+import type {
+	MainBaseRow,
+	MainStageGroup,
+	MainTaskRow,
+} from "../application/state";
+import type { BaseRepoAction, MatrixColumn, Repo } from "../domain/model";
+import {
+	baseRepoAction,
+	baseRepoHealth,
+	taskProgress,
+	taskStatus,
+} from "../domain/model";
 import { StatusToken } from "./StatusToken";
 import {
+	baseRepoFacts,
 	currentWorkText,
 	formatRelativeTime,
 	repoFacts,
@@ -70,6 +80,65 @@ const STAGE_NUMBERS: Record<MatrixColumn, string> = {
 	execution: "02",
 	review: "03",
 };
+
+const ACTION_LABELS = {
+	pull: "PULL",
+	push: "PUSH",
+	check: "CHECK",
+} as const satisfies Record<BaseRepoAction, string>;
+
+function BaseRepoRow({ row }: { readonly row: MainBaseRow }) {
+	const { project, repo, showProject } = row;
+	const health = baseRepoHealth(repo);
+	const action = baseRepoAction(repo);
+	const facts = baseRepoFacts(repo);
+	const branchLabel =
+		repo.inspectionError !== null
+			? "branch unavailable"
+			: repo.branch || "no branch";
+	const guidance =
+		repo.inspectionError === "invalid-worktree"
+			? "Invalid base worktree"
+			: repo.inspectionError === "git-read-failed"
+				? "Git status could not be read"
+				: repo.dirty && repo.behind > 0
+					? "Clean working tree before pulling"
+					: "";
+	const description = `${project} ${repo.name}, ${branchLabel}, ${facts}${action === undefined ? "" : `, next ${ACTION_LABELS[action]}`}${guidance === "" ? "" : `, ${guidance}`}`;
+	const factsTitle = facts + (guidance === "" ? "" : ` · ${guidance}`);
+
+	return (
+		/* biome-ignore lint/a11y/useSemanticElements: The approved contract requires a non-focusable div listitem. */
+		<div
+			aria-label={description}
+			className="stage-base-row"
+			data-health={health}
+			role="listitem"
+			title={description}
+		>
+			<span aria-hidden="true" className="stage-base-dot" />
+			<span className="stage-base-name" title={`${project}/${repo.name}`}>
+				{showProject ? (
+					<span className="stage-base-project">{project}/</span>
+				) : null}
+				{repo.name}
+			</span>
+			<span className="stage-base-branch" title={branchLabel}>
+				{repo.inspectionError !== null || repo.branch === ""
+					? "—"
+					: repo.branch}
+			</span>
+			<span className="stage-base-facts" title={factsTitle}>
+				{facts}
+			</span>
+			{action === undefined ? null : (
+				<span className="stage-base-action" data-action={action}>
+					{ACTION_LABELS[action]}
+				</span>
+			)}
+		</div>
+	);
+}
 
 function StageGroupHead({
 	column,
@@ -406,6 +475,7 @@ function IdleTaskRow({
 
 export type StageBoardProps = {
 	readonly activeCount: number;
+	readonly baseRows: readonly MainBaseRow[];
 	readonly groups: readonly MainStageGroup[];
 	readonly idleCount: number;
 	readonly idleRows: readonly MainTaskRow[];
@@ -419,6 +489,7 @@ export type StageBoardProps = {
 
 export function StageBoard({
 	activeCount,
+	baseRows,
 	groups,
 	idleCount,
 	idleRows,
@@ -436,6 +507,26 @@ export function StageBoard({
 				WORKTREE STATUS{" "}
 				<span className="stage-matrix-count">{activeCount}</span>
 			</h2>
+			{baseRows.length === 0 ? null : (
+				<section
+					aria-label="Base repositories"
+					className="stage-group stage-base-group"
+					data-column="base"
+				>
+					<header className="stage-group-head" data-column="base">
+						<span className="stage-group-num">00</span>
+						<span className="stage-group-label">BASE</span>
+						<span aria-hidden="true" className="stage-group-rule" />
+						<span className="stage-group-count">{baseRows.length}</span>
+					</header>
+					{/* biome-ignore lint/a11y/useSemanticElements: The approved contract requires the existing div list container. */}
+					<div className="stage-group-list" role="list">
+						{baseRows.map((row) => (
+							<BaseRepoRow key={row.key} row={row} />
+						))}
+					</div>
+				</section>
+			)}
 			{groups.map((group) => (
 				<section
 					className="stage-group"

@@ -2,7 +2,7 @@
 
 ## Source of truth
 - Status: Active
-- Last refreshed: 2026-08-24
+- Last refreshed: 2026-09-07
 - Primary product surfaces: Workbranch Companion macOS menu bar popover.
 - Evidence reviewed:
   - `docs/plans/0032-companion-tauri-react-rewrite.md`
@@ -54,7 +54,7 @@
 - Content hierarchy:
   1. Compact global inventory (`projects · tasks`) and icon-only refresh.
   2. Active view content.
-  3. Main view: one `WORKTREE STATUS` surface grouped vertically as `01 PLAN → 02 EXECUTION → 03 REVIEW`. The three stage headers are always visible; an empty stage shows count `0` without an empty task row. Each active task appears once beneath its stage header with current work, repo/branch Git facts, task actions, and optional repo/branch notes. Clean todo/done tasks remain only in the `IDLE N` footer.
+  3. Main view: one `WORKTREE STATUS` surface grouped vertically as `00 BASE → 01 PLAN → 02 EXECUTION → 03 REVIEW`. BASE appears only when base repo data is available, in project/config order, with project prefixes when multiple projects are loaded. The three task stage headers are always visible; an empty stage shows count `0` without an empty task row. Each active task appears once beneath its stage header with current work, repo/branch Git facts, task actions, and optional repo/branch notes. Clean todo/done tasks remain in the compact IDLE section.
   4. Activity view: existing day/three-day calendar, session selection, and reload behavior inside the agent shell.
   5. Settings view: launch-at-login, font, and agent theme controls.
   6. Screen-reader live status in the agent shell; routine `Updated`/`Ready` text stays out of the visible header.
@@ -91,6 +91,7 @@
   - agent theme segmented control (`Claude Code`, `Codex`) with Claude Code as the default and migration target,
   - `StageTaskBlock` containing task name/status/current work, optional derived/blocked/progress/notification cues, one task-level icon-only IDE/Terminal/Finder action group, and its repository rows. IDE uses an editor-window silhouette with a title bar, file sidebar, and code lines; Terminal uses `>_`; Finder uses a folder. Inline SVG icons retain explicit aria-label/title/focus/disabled states. Launcher configuration and path resolution remain CLI-owned: IDE opens configured repo worktrees and is disabled when none exist, while Terminal/Finder use the resolved task root,
   - `StageRepoRow` containing repo/branch identity, observable Git facts, last-commit relative time, and an inline note editor persisted in `companion-notes.json` by `repo:branch` key.
+  - `BaseRepoRow` inside `StageBoard`, showing base branch, dirty and cached origin/base-branch differences. Quiet dots identify clean rows; notify/blocked tokens identify warning/problem rows. PULL/PUSH/CHECK pills are non-interactive guidance, not execution controls. Dirty + behind is warn/CHECK until clean, then PULL; ahead-only is PUSH, dirty-only has no pill. Missing, mismatch, divergence, missing remote and inspection errors use CHECK. Inspection errors show UNAVAILABLE with a safe reason, never sentinel CLEAN/0 facts, and do not hide healthy sibling repositories or tasks.
 - Variants and states: todo, planning, in-progress, review, blocked, done, notification present, dirty repo. In-progress identity uses the compact status marker rather than recoloring the full Task perimeter.
 - Todo/done visibility: todo/done tasks with repo `dirty` or `ahead > 0` derive into EXECUTION and remain visible in that group. Clean todo/done tasks are inactive and excluded from Main; only their aggregate `IDLE N` count appears in the footer.
 - Shared header anatomy: Claude Code and Codex use the same text-only title block: `Workbranch Companion` above `projects · tasks`. The top banner contains no Workbranch mark, product icon, or Claude/Codex prompt prefix; theme identity comes from surrounding color tokens rather than different header geometry. Task metadata rows may retain their theme-specific prompt and action accents.
@@ -106,6 +107,7 @@
 ## Responsive behavior
 - Supported breakpoints/devices: the native menu popover opens at 520×760, remains resizable, and cannot resize below 460px wide.
 - Layout adaptations: the shared expanded header keeps its internal columns consistent on every tab. Stage groups remain vertical at every supported width. Task actions stay compact on the task line where space allows and wrap without horizontal overflow at 460px. Repo/fact/commit/note rows use `min-width: 0`; long task, repo, branch, note, and last-commit strings ellipsize with complete values in `title`/accessibility data.
+- Base row facts use a bounded flexible grid track with ellipsis and complete title/aria text. At 480px and below, facts move to a bounded second line; state dots and action pills remain visible. Validate internal row clipping, not just document overflow, including long branch names and the largest font setting.
 - Touch/hover differences: hover is enhancement only; core state is visible without hover. Pointer single-click selects a task. For repo-bearing tasks, pointer double-click opens the task in the IDE and command/control-enter provides the keyboard IDE shortcut. Repo-less tasks remain selection-only.
 
 ## Interaction states
@@ -128,7 +130,7 @@
 - Framework/styling system: React 18 + plain CSS. Adapt the structure and accessibility behavior of the Brainless Claude and Codex components into local reusable primitives. Do not add Tailwind, shadcn, or a new runtime package.
 - Design-token constraints: CSS custom properties remain in the existing theme/base files; `style.css` is the import manifest.
 - Performance constraints: no extra runtime package; no animation loops; preserve 0033 responsiveness fixes.
-- Compatibility constraints: CLI, schema v1 wire contract, Tauri command shape, and Rust ports remain unchanged; Companion delegates configured IDE/path behavior to the existing task-level launcher commands.
+- Compatibility constraints: schema v1 adds optional project-level `baseRepos`; each present base repo has ten required fields including nullable `inspectionError`. Missing `baseRepos` from older CLI output maps to an empty group. Tauri command shape and Rust ports remain unchanged; Companion delegates configured IDE/path behavior to the existing task-level launcher commands. Status reads never fetch; pills reflect cached remote-tracking refs rather than guaranteeing the next Git command can execute.
 - Scope constraints: do not add keyboard shortcuts or display shortcut hints for behavior that does not exist.
 - Test/screenshot expectations: cover both theme variants, the 520px primary and 460px minimum boundaries, lifecycle-ordered stage groups, current work, repo facts, note edit/save/cancel/delete, task selection/actions, and Main/Activity/Settings shell contracts with Vitest. Run typecheck, lint, Vite build, Tauri build, then inspect both themes at both widths before final handoff.
 
@@ -137,6 +139,7 @@
 
 
 ## Direction revision
+- 2026-09-07 (base repo status group): Added compact `00 BASE` above PLAN using the existing stage header and theme tokens. Repo-local inspection errors remain visible without hiding healthy data. Dirty + behind advises CHECK before PULL. Full facts remain accessible while bounded grid tracks prevent silent clipping at 520px/460px.
 - 2026-06-17: Primary reference changed from Linear to Raycast after implementation review. Keep Linear only as a secondary cue for compact status hierarchy; the dominant feel should be a Raycast-like menu command/status popover, not a SaaS issue-list dashboard.
 - 2026-06-18: Primary direction changed from Raycast-like chrome to a terminal/CLI developer HUD for companion settings, fonts, and theme presets. Treat the 2026-06-17 Raycast direction as superseded for shell color, typography, and settings components; keep only the compact status hierarchy lessons. Later on 2026-06-18, navigation changed to view-level bottom tabs: Main, Activity report stub, and Setting, while the top-right header keeps refresh as an icon-only control.
 - 2026-06-18 (refresh): Direction refined from a mono-only terminal HUD to a **modern developer HUD — terminal core, modern shell**. The strict mono-only typography and hairline-only depth produced a flat, low-contrast, drab popover. Corrections: (1) dual-axis typography — system sans for names/headings/controls, monospace kept for developer data; (2) clearly stepped tonal surfaces plus soft card elevation with hover lift, replacing near-invisible translucent cards; (3) accent (cyan in terminal-dark) stays the single signal color but appears on more touchpoints (project rail, current-step left rail, active states). This supersedes the mono-only typography line and the hairline-only depth line above. Identity, density, status-as-launcher, and the theme preset direction now expands to four famous families with dark/light variants.

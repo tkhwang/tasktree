@@ -502,7 +502,7 @@ test_list_json_base_repos_shape() {
 d = json.load(sys.stdin)
 assert [r["name"] for r in d["baseRepos"]] == ["frontend", "backend"], d
 for repo in d["baseRepos"]:
-    assert set(repo) == {"name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind"}, repo
+    assert set(repo) == {"name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind", "inspectionError"}, repo
     assert repo["baseBranch"] == "master", repo
     assert repo["branch"] == "master", repo
     assert repo["present"] is True, repo
@@ -510,7 +510,8 @@ for repo in d["baseRepos"]:
     assert repo["changedFiles"] == 0, repo
     assert repo["remoteAvailable"] is True, repo
     assert repo["ahead"] == 0, repo
-    assert repo["behind"] == 0, repo'
+    assert repo["behind"] == 0, repo
+    assert repo["inspectionError"] is None, repo'
 }
 
 test_list_json_base_repos_remote_diff_and_dirty() {
@@ -539,13 +540,15 @@ assert frontend["changedFiles"] == 0, frontend
 assert frontend["remoteAvailable"] is True, frontend
 assert frontend["behind"] == 1, frontend
 assert frontend["ahead"] == 0, frontend
+assert frontend["inspectionError"] is None, frontend
 backend = repos["backend"]
 assert backend["present"] is True, backend
 assert backend["dirty"] is True, backend
 assert backend["changedFiles"] == 1, backend
 assert backend["remoteAvailable"] is True, backend
 assert backend["ahead"] == 1, backend
-assert backend["behind"] == 0, backend'
+assert backend["behind"] == 0, backend
+assert backend["inspectionError"] is None, backend'
 }
 
 test_list_json_base_repos_missing_worktree_and_remote() {
@@ -568,11 +571,190 @@ assert frontend["changedFiles"] == 0, frontend
 assert frontend["remoteAvailable"] is False, frontend
 assert frontend["ahead"] == 0, frontend
 assert frontend["behind"] == 0, frontend
+assert frontend["inspectionError"] is None, frontend
 backend = repos["backend"]
 assert backend["present"] is True, backend
 assert backend["remoteAvailable"] is False, backend
 assert backend["ahead"] == 0, backend
-assert backend["behind"] == 0, backend'
+assert backend["behind"] == 0, backend
+assert backend["inspectionError"] is None, backend'
+}
+
+test_list_json_base_repos_require_exact_worktree_root() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  rm -rf "$project/_base/frontend" "$project/_base/backend"
+  git init --bare "$project/_base/frontend" >/dev/null 2>&1
+  git -C "$project/_base" init -q
+  mkdir -p "$project/_base/backend"
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = {r["name"]: r for r in json.load(sys.stdin)["baseRepos"]}
+for name in ("frontend", "backend"):
+    repo = repos[name]
+    assert repo["present"] is False, repo
+    assert repo["branch"] == "", repo
+    assert repo["dirty"] is False, repo
+    assert repo["changedFiles"] == 0, repo
+    assert repo["remoteAvailable"] is False, repo
+    assert repo["ahead"] == 0, repo
+    assert repo["behind"] == 0, repo
+    assert repo["inspectionError"] == "invalid-worktree", repo'
+}
+
+test_list_json_base_repos_preserve_branch_and_detached_head() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  git -C "$project/_base/frontend" checkout -b other-branch >/dev/null 2>&1
+  git -C "$project/_base/backend" checkout --detach >/dev/null 2>&1
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = {r["name"]: r for r in json.load(sys.stdin)["baseRepos"]}
+frontend = repos["frontend"]
+assert frontend["present"] is True, frontend
+assert frontend["baseBranch"] == "master", frontend
+assert frontend["branch"] == "other-branch", frontend
+assert frontend["inspectionError"] is None, frontend
+backend = repos["backend"]
+assert backend["present"] is True, backend
+assert backend["baseBranch"] == "master", backend
+assert backend["branch"] == "", backend
+assert backend["inspectionError"] is None, backend'
+}
+
+test_list_json_base_repo_inaccessible_parent_is_not_missing() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  chmod 000 "$project/_base"
+  out=$("$WORKBRANCH" list --json 2>&1)
+  status=$?
+  chmod 755 "$project/_base"
+  [ $status -eq 0 ] || fail "expected inaccessible base repos to stay row-local: $out"
+
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = json.load(sys.stdin)["baseRepos"]
+assert [r["name"] for r in repos] == ["frontend", "backend"], repos
+for repo in repos:
+    assert repo["present"] is False, repo
+    assert repo["inspectionError"] == "git-read-failed", repo'
+}
+
+test_list_json_base_repo_non_commit_remote_ref_is_read_failure() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  blob=$(printf '%s' not-a-commit | git -C "$project/_base/frontend" hash-object -w --stdin)
+  git -C "$project/_base/frontend" update-ref refs/remotes/origin/master "$blob"
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = {r["name"]: r for r in json.load(sys.stdin)["baseRepos"]}
+frontend = repos["frontend"]
+assert frontend["present"] is True, frontend
+assert frontend["remoteAvailable"] is False, frontend
+assert frontend["inspectionError"] == "git-read-failed", frontend
+backend = repos["backend"]
+assert backend["remoteAvailable"] is True, backend
+assert backend["inspectionError"] is None, backend'
+}
+
+test_list_json_base_repo_dangling_symbolic_remote_ref_is_read_failure() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+  run_expect_success "$WORKBRANCH" add login >/dev/null
+
+  git -C "$project/_base/frontend" symbolic-ref refs/remotes/origin/master refs/remotes/origin/missing
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+assert [t["name"] for t in d["tasks"]] == ["login"], d
+repos = {r["name"]: r for r in d["baseRepos"]}
+frontend = repos["frontend"]
+assert frontend["present"] is True, frontend
+assert frontend["branch"] == "", frontend
+assert frontend["dirty"] is False, frontend
+assert frontend["changedFiles"] == 0, frontend
+assert frontend["remoteAvailable"] is False, frontend
+assert frontend["ahead"] == 0, frontend
+assert frontend["behind"] == 0, frontend
+assert frontend["inspectionError"] == "git-read-failed", frontend
+backend = repos["backend"]
+assert backend["present"] is True, backend
+assert backend["branch"] == "master", backend
+assert backend["remoteAvailable"] is True, backend
+assert backend["inspectionError"] is None, backend'
+}
+
+test_list_json_base_repo_git_failures_are_isolated() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  xdg="$TMP_ROOT/xdg"
+  cd "$project" || return 1
+  run_expect_success env XDG_CONFIG_HOME="$xdg" "$WORKBRANCH" init >/dev/null
+  run_expect_success "$WORKBRANCH" add login >/dev/null
+
+  real_git=$(command -v git)
+  frontend_path=$(cd "$project/_base/frontend" && pwd -P)
+  fake_bin="$TMP_ROOT/fake-bin"
+  mkdir -p "$fake_bin"
+  cat > "$fake_bin/git" <<'EOF_GIT'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-C" ] && [ "${2:-}" = "$FAIL_GIT_PATH" ]; then
+  case "$FAIL_GIT_OPERATION:${3:-}:${4:-}" in
+    status:status:--porcelain) exit 2 ;;
+    remote:rev-parse:--verify) exit 2 ;;
+    compare:rev-list:--left-right) exit 2 ;;
+  esac
+fi
+exec "$REAL_GIT" "$@"
+EOF_GIT
+  chmod +x "$fake_bin/git"
+
+  for operation in status remote compare; do
+    out=$(run_expect_success env PATH="$fake_bin:$PATH" REAL_GIT="$real_git" FAIL_GIT_PATH="$frontend_path" FAIL_GIT_OPERATION="$operation" "$WORKBRANCH" list --json)
+    printf '%s' "$out" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+assert [t["name"] for t in d["tasks"]] == ["login"], d
+repos = {r["name"]: r for r in d["baseRepos"]}
+failed = repos["frontend"]
+assert failed["present"] is True, failed
+assert failed["branch"] == "", failed
+assert failed["dirty"] is False, failed
+assert failed["changedFiles"] == 0, failed
+assert failed["remoteAvailable"] is False, failed
+assert failed["ahead"] == 0, failed
+assert failed["behind"] == 0, failed
+assert failed["inspectionError"] == "git-read-failed", failed
+healthy = repos["backend"]
+assert healthy["present"] is True, healthy
+assert healthy["branch"] == "master", healthy
+assert healthy["remoteAvailable"] is True, healthy
+assert healthy["inspectionError"] is None, healthy' || return 1
+  done
+
+  out=$(cd "$TMP_ROOT" && run_expect_success env XDG_CONFIG_HOME="$xdg" PATH="$fake_bin:$PATH" REAL_GIT="$real_git" FAIL_GIT_PATH="$frontend_path" FAIL_GIT_OPERATION=status "$WORKBRANCH" list --global --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+assert len(d["projects"]) == 1, d
+assert d["projects"][0]["baseRepos"][0]["inspectionError"] == "git-read-failed", d
+assert [t["name"] for t in d["projects"][0]["tasks"]] == ["login"], d
+assert d["errors"] == [], d'
 }
 
 

@@ -1,4 +1,4 @@
-import type { Repo, Task } from "../domain/model";
+import type { BaseRepo, Repo, Task } from "../domain/model";
 import { activePlan } from "../domain/model";
 
 const TASK_ACTION_KINDS = ["ide", "terminal", "finder"] as const;
@@ -56,6 +56,24 @@ export function repoFacts(repo: Repo): string {
 	const facts = [dirtyFact];
 	if (repo.ahead > 0) facts.push("AHEAD " + repo.ahead);
 	if (repo.behind > 0) facts.push("BEHIND " + repo.behind);
+	return facts.join(" · ");
+}
+
+export function baseRepoFacts(repo: BaseRepo): string {
+	if (repo.inspectionError !== null) return "UNAVAILABLE";
+	if (!repo.present) return "MISSING";
+
+	const facts = [
+		repo.dirty
+			? `DIRTY ${repo.changedFiles} ${repo.changedFiles === 1 ? "FILE" : "FILES"}`
+			: "CLEAN",
+	];
+	if (repo.ahead > 0) facts.push(`AHEAD ${repo.ahead}`);
+	if (repo.behind > 0) facts.push(`BEHIND ${repo.behind}`);
+	if (!repo.remoteAvailable) facts.push("NO REMOTE");
+	if (repo.branch !== repo.baseBranch) {
+		facts.push(`EXPECTED ${repo.baseBranch}`);
+	}
 	return facts.join(" · ");
 }
 

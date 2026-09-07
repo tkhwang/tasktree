@@ -28,6 +28,16 @@ function isOptionalString(value: unknown): boolean {
 	return value === undefined || isString(value);
 }
 
+function isInspectionError(
+	value: unknown,
+): value is WorkbranchBaseRepo["inspectionError"] {
+	return (
+		value === null ||
+		value === "invalid-worktree" ||
+		value === "git-read-failed"
+	);
+}
+
 function isChecklistItem(value: unknown): value is WorkbranchChecklistItem {
 	if (!isRecord(value)) {
 		return false;
@@ -109,7 +119,8 @@ function isBaseRepo(value: unknown): value is WorkbranchBaseRepo {
 		isNonNegativeInteger(value["changedFiles"]) &&
 		typeof value["remoteAvailable"] === "boolean" &&
 		isNonNegativeInteger(value["ahead"]) &&
-		isNonNegativeInteger(value["behind"])
+		isNonNegativeInteger(value["behind"]) &&
+		isInspectionError(value["inspectionError"])
 	);
 }
 

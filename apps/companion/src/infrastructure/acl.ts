@@ -90,6 +90,7 @@ function mapBaseRepo(
 		remoteAvailable: dto.remoteAvailable,
 		ahead: dto.ahead,
 		behind: dto.behind,
+		inspectionError: dto.inspectionError,
 	};
 }
 

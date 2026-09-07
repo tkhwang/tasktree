@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEvent } from "../src/application/activity";
 import { createActivityRefresh } from "../src/application/activity";
-import type { GlobalState, Plan, Project, Task } from "../src/domain/model";
+import type {
+	BaseRepo,
+	GlobalState,
+	Plan,
+	Project,
+	Task,
+} from "../src/domain/model";
 
 const BASELINE_PLAN: Plan = {
 	title: "Backend",
@@ -79,6 +85,19 @@ const UPDATED_STATE: GlobalState = {
 	errors: [],
 };
 
+const CLEAN_BASE_REPO: BaseRepo = {
+	name: "workbranch",
+	baseBranch: "main",
+	branch: "main",
+	present: true,
+	dirty: false,
+	changedFiles: 0,
+	remoteAvailable: true,
+	ahead: 0,
+	behind: 0,
+	inspectionError: null,
+};
+
 type Deferred<T> = {
 	readonly promise: Promise<T>;
 	readonly resolve: (value: T) => void;
@@ -100,6 +119,74 @@ function nextMicrotask(): Promise<void> {
 }
 
 describe("createActivityRefresh", () => {
+	it("does not append activity for base repo changes, errors, or recovery", async () => {
+		const states: GlobalState[] = [
+			{
+				projects: [{ ...BASELINE_PROJECT, baseRepos: [CLEAN_BASE_REPO] }],
+				errors: [],
+			},
+			{
+				projects: [
+					{
+						...BASELINE_PROJECT,
+						baseRepos: [
+							{
+								...CLEAN_BASE_REPO,
+								dirty: true,
+								changedFiles: 1,
+							},
+						],
+					},
+				],
+				errors: [],
+			},
+			{
+				projects: [
+					{
+						...BASELINE_PROJECT,
+						baseRepos: [
+							{
+								...CLEAN_BASE_REPO,
+								branch: "",
+								present: false,
+								remoteAvailable: false,
+								inspectionError: "git-read-failed",
+							},
+						],
+					},
+				],
+				errors: [],
+			},
+			{
+				projects: [{ ...BASELINE_PROJECT, baseRepos: [CLEAN_BASE_REPO] }],
+				errors: [],
+			},
+		];
+		const appended: ActivityEvent[][] = [];
+		const refresh = createActivityRefresh({
+			refresh: () => {
+				const state = states.shift();
+				if (state === undefined) {
+					throw new Error("unexpected refresh");
+				}
+				return Promise.resolve(state);
+			},
+			refreshRoot: () => Promise.resolve(BASELINE_PROJECT),
+			append: (events) => {
+				appended.push([...events]);
+				return Promise.resolve();
+			},
+			now: () => 100,
+		});
+
+		await refresh.all();
+		await refresh.all();
+		await refresh.all();
+		await refresh.all();
+
+		expect(appended).toEqual([]);
+	});
+
 	it("serializes overlapping refresh callers", async () => {
 		const firstRefresh = deferred<GlobalState>();
 		const appended: ActivityEvent[][] = [];

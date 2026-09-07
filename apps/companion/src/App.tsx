@@ -219,6 +219,7 @@ export function App() {
 				<section className="view-panel" aria-label="Main View">
 					<StageBoard
 						activeCount={main.activeCount}
+						baseRows={main.baseRows}
 						groups={main.stageGroups}
 						idleCount={main.idleCount}
 						idleRows={main.idleRows}

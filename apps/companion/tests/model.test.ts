@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { buildMainViewModel } from "../src/application/state";
-import type { GlobalState, PlanStatus, Task } from "../src/domain/model";
+import type {
+	BaseRepo,
+	GlobalState,
+	PlanStatus,
+	Task,
+} from "../src/domain/model";
 import {
 	activePlan,
+	baseRepoAction,
+	baseRepoHealth,
 	matrixPlacement,
 	taskProgress,
 	taskStatus,
@@ -85,6 +92,93 @@ const AHEAD_REPO: Task["repos"][number] = {
 	changedFiles: 0,
 };
 
+const CLEAN_BASE_REPO: BaseRepo = {
+	name: "backend",
+	baseBranch: "main",
+	branch: "main",
+	present: true,
+	dirty: false,
+	changedFiles: 0,
+	remoteAvailable: true,
+	ahead: 0,
+	behind: 0,
+	inspectionError: null,
+};
+
+describe("base repo status", () => {
+	it.each([
+		["ok", CLEAN_BASE_REPO, "ok", undefined],
+		["dirty only", { ...CLEAN_BASE_REPO, dirty: true }, "warn", undefined],
+		["clean ahead", { ...CLEAN_BASE_REPO, ahead: 1 }, "warn", "push"],
+		[
+			"dirty ahead",
+			{ ...CLEAN_BASE_REPO, dirty: true, ahead: 1 },
+			"warn",
+			"push",
+		],
+		["clean behind", { ...CLEAN_BASE_REPO, behind: 1 }, "warn", "pull"],
+		[
+			"dirty behind",
+			{ ...CLEAN_BASE_REPO, dirty: true, behind: 1 },
+			"warn",
+			"check",
+		],
+		["diverged", { ...CLEAN_BASE_REPO, ahead: 1, behind: 1 }, "bad", "check"],
+		[
+			"branch mismatch",
+			{ ...CLEAN_BASE_REPO, branch: "release" },
+			"bad",
+			"check",
+		],
+		[
+			"no remote",
+			{ ...CLEAN_BASE_REPO, remoteAvailable: false },
+			"bad",
+			"check",
+		],
+		["missing", { ...CLEAN_BASE_REPO, present: false }, "bad", "check"],
+		[
+			"invalid worktree",
+			{
+				...CLEAN_BASE_REPO,
+				present: false,
+				inspectionError: "invalid-worktree",
+			},
+			"bad",
+			"check",
+		],
+		[
+			"git read failure",
+			{
+				...CLEAN_BASE_REPO,
+				present: false,
+				inspectionError: "git-read-failed",
+			},
+			"bad",
+			"check",
+		],
+	] as const)("derives %s health and action", (_label, repo, expectedHealth, expectedAction) => {
+		expect(baseRepoHealth(repo)).toBe(expectedHealth);
+		expect(baseRepoAction(repo)).toBe(expectedAction);
+	});
+
+	it("changes CHECK to PULL and then no action as a dirty behind repo recovers", () => {
+		const dirtyBehind = { ...CLEAN_BASE_REPO, dirty: true, behind: 1 };
+		const cleanBehind = { ...dirtyBehind, dirty: false };
+		const synchronized = { ...cleanBehind, behind: 0 };
+
+		expect([
+			[baseRepoHealth(dirtyBehind), baseRepoAction(dirtyBehind)],
+			[baseRepoHealth(cleanBehind), baseRepoAction(cleanBehind)],
+			[baseRepoHealth(synchronized), baseRepoAction(synchronized)],
+		]).toEqual([
+			["warn", "check"],
+			["warn", "pull"],
+			["ok", undefined],
+		]);
+	});
+});
+
 describe("activePlan", () => {
 	it("falls back to the last plan when every plan is done", () => {
 		expect(activePlan(completedMultiPlanTask)?.title).toBe(
@@ -150,6 +244,82 @@ describe("matrixPlacement", () => {
 });
 
 describe("buildMainViewModel", () => {
+	it("keeps base repository project and config wire order", () => {
+		const state: GlobalState = {
+			projects: [
+				{
+					name: "alpha",
+					root: "/tmp/alpha",
+					tasks: [],
+					baseRepos: [
+						{ ...CLEAN_BASE_REPO, name: "frontend" },
+						{ ...CLEAN_BASE_REPO, name: "backend" },
+					],
+				},
+				{
+					name: "beta",
+					root: "/tmp/beta",
+					tasks: [],
+					baseRepos: [{ ...CLEAN_BASE_REPO, name: "web" }],
+				},
+			],
+			errors: [{ root: "/tmp/unavailable", message: "refresh failed" }],
+		};
+
+		const main = buildMainViewModel(state);
+
+		expect(main.baseRows.map((row) => row.key)).toEqual([
+			"/tmp/alpha:frontend",
+			"/tmp/alpha:backend",
+			"/tmp/beta:web",
+		]);
+		expect(main.baseRows.map((row) => row.project)).toEqual([
+			"alpha",
+			"alpha",
+			"beta",
+		]);
+		expect(main.baseRows.every((row) => row.showProject)).toBe(true);
+		expect(main.baseRows.some((row) => row.root === "/tmp/unavailable")).toBe(
+			false,
+		);
+	});
+
+	it("hides the project prefix when only one project loaded successfully", () => {
+		const main = buildMainViewModel({
+			projects: [
+				{
+					name: "alpha",
+					root: "/tmp/alpha",
+					tasks: [],
+					baseRepos: [CLEAN_BASE_REPO],
+				},
+			],
+			errors: [{ root: "/tmp/unavailable", message: "refresh failed" }],
+		});
+
+		expect(main.baseRows[0]?.showProject).toBe(false);
+	});
+
+	it("does not include base repositories in active or idle task counts", () => {
+		const main = buildMainViewModel({
+			projects: [
+				{
+					name: "alpha",
+					root: "/tmp/alpha",
+					tasks: [
+						taskWithStatus("active", "in-progress", 20),
+						taskWithStatus("idle", "todo", 10),
+					],
+					baseRepos: [CLEAN_BASE_REPO],
+				},
+			],
+			errors: [],
+		});
+
+		expect(main.activeCount).toBe(1);
+		expect(main.idleCount).toBe(1);
+	});
+
 	it("orders active tasks by attention and excludes clean inactive tasks", () => {
 		const reviewRepos: Task["repos"] = [
 			{

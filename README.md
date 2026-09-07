@@ -106,7 +106,7 @@ Before an agent starts, `workbranch refresh <task>` brings every repo in the tas
 
 See [AI agent workflows](docs/ai-agents.md) for the multi-repo benefits.
 
-Companion reads this structure through `workbranch list --global --json`. Its Main view groups active tasks by Plan stage and shows project, repo, dirty, blocked, progress, and notification details. The Activity timeline reads from the separate local append-only log; task creation, refresh, land, and push remain CLI actions.
+Companion reads this structure through `workbranch list --global --json`. Its Main view shows a compact `00 BASE` group with each base repo's branch, dirty state, and ahead/behind counts against cached `origin/<baseBranch>` refs, followed by tasks grouped by Plan stage. PULL/PUSH/CHECK pills are guidance only; dirty + behind advises CHECK first, and an unreadable repo shows UNAVAILABLE without hiding healthy data. Reads do not fetch. The Activity timeline reads from the separate local append-only log; task creation, refresh, land, and push remain CLI actions.
 
 ## Working on a task
 

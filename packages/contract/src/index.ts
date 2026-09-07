@@ -52,6 +52,7 @@ export type WorkbranchBaseRepo = {
 	readonly remoteAvailable: boolean;
 	readonly ahead: number;
 	readonly behind: number;
+	readonly inspectionError: "invalid-worktree" | "git-read-failed" | null;
 };
 
 export type WorkbranchListDocument = {
