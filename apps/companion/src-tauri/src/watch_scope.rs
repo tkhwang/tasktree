@@ -65,11 +65,22 @@ fn repository_git_entries(root: &Path) -> Result<Vec<PathBuf>, CompanionError> {
 }
 
 fn configured_base_dir(root: &Path) -> Option<String> {
-    let config = fs::read_to_string(root.join(".workbranch.config")).ok()?;
+    let (filename, legacy) = [
+        (".workbranch.config", false),
+        (".tasktree.config", true),
+        (".monotree.config", true),
+    ]
+    .into_iter()
+    .find(|(filename, _)| root.join(filename).is_file())?;
+    let config = fs::read_to_string(root.join(filename)).ok()?;
     config.lines().find_map(|line| {
         let mut fields = line.split_whitespace();
         match (fields.next(), fields.next(), fields.next()) {
-            (Some("MAIN_WORKTREES_DIR"), Some(value), None) if is_single_component(value) => {
+            (Some(directive), Some(value), None)
+                if is_single_component(value)
+                    && (directive == "MAIN_WORKTREES_DIR"
+                        || (legacy && matches!(directive, "BASE_DIR" | "base_dir"))) =>
+            {
                 Some(value.to_string())
             }
             _ => None,

@@ -1,4 +1,4 @@
-use super::discover_watch_scopes;
+use super::{configured_base_dir, discover_watch_scopes};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -187,5 +187,58 @@ fn new_gitfile_is_discovered_on_next_scope_refresh() -> Result<(), Box<dyn std::
     // Then
     assert_eq!(before.len(), 1);
     assert!(after.contains_key(&fs::canonicalize(external_git_dir)?));
+    Ok(())
+}
+
+#[test]
+fn legacy_configs_discover_external_base_metadata() -> Result<(), Box<dyn std::error::Error>> {
+    for filename in [".tasktree.config", ".monotree.config"] {
+        for directive in ["MAIN_WORKTREES_DIR", "BASE_DIR", "base_dir"] {
+            let fixture = Fixture::new("legacy-config")?;
+            let root = fixture.0.join("project");
+            let repository = root.join("legacy-bases/frontend");
+            let git_dir = fixture.0.join("external.git");
+            fs::create_dir_all(&repository)?;
+            fs::write(root.join(filename), format!("{directive} legacy-bases\n"))?;
+            write_git_metadata(&git_dir, &git_dir)?;
+            fs::write(
+                repository.join(".git"),
+                format!("gitdir: {}\n", git_dir.display()),
+            )?;
+
+            let scopes = discover_watch_scopes(&[root.to_string_lossy().into_owned()])?;
+            assert!(
+                scopes.contains_key(&fs::canonicalize(&git_dir)?),
+                "{filename}: {directive}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn config_precedence_matches_cli_project_discovery() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new("config-precedence")?;
+    fs::write(fixture.0.join(".monotree.config"), "base_dir oldest\n")?;
+    fs::write(fixture.0.join(".tasktree.config"), "BASE_DIR legacy\n")?;
+    write_project_config(&fixture.0, "current")?;
+    assert_eq!(configured_base_dir(&fixture.0).as_deref(), Some("current"));
+    fs::remove_file(fixture.0.join(".workbranch.config"))?;
+    assert_eq!(configured_base_dir(&fixture.0).as_deref(), Some("legacy"));
+    fs::remove_file(fixture.0.join(".tasktree.config"))?;
+    assert_eq!(configured_base_dir(&fixture.0).as_deref(), Some("oldest"));
+    Ok(())
+}
+
+#[test]
+fn canonical_config_does_not_accept_legacy_aliases() -> Result<(), Box<dyn std::error::Error>> {
+    let fixture = Fixture::new("canonical-directive")?;
+    for directive in ["BASE_DIR", "base_dir"] {
+        fs::write(
+            fixture.0.join(".workbranch.config"),
+            format!("{directive} bases\n"),
+        )?;
+        assert_eq!(configured_base_dir(&fixture.0), None);
+    }
     Ok(())
 }

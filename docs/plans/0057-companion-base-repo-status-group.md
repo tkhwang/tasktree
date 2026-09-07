@@ -410,3 +410,5 @@ git diff --check
 - 사용자 registry/설치 CLI 변경, 네트워크 fetch 추가, 새로운 Tauri command/JSON API 추가는 하지 않는다.
 
 후속 검증: CLI 295건, contract 7건, Companion 189건, Rust 34건 PASS. typecheck/lint, cargo fmt/clippy(-D warnings), Tauri release build PASS. taskless base 프로젝트의 실제 production header 렌더링에서 1 project · 0 tasks를 확인했다. 외부 git-dir/common-dir와 일반 root의 실제 notify 이벤트, 잘못된 metadata 격리, 공유 소유자·변경 범위·초기 refresh loop 회귀를 검증했다. 최종 커밋 기준 독립 리뷰와 CI 결과는 PR #190 댓글 및 task workspace의 PR evidence ledger에 기록한다.
+
+최종 코드 리뷰 후 호환성 보완: Git metadata 탐색도 CLI와 동일하게 `.workbranch.config` → `.tasktree.config` → `.monotree.config` 우선순위를 따른다. `BASE_DIR`/`base_dir`는 legacy 파일에서만 허용한다. 두 legacy 파일 × 세 directive의 외부 metadata 탐색, 파일 우선순위, canonical alias 거부를 회귀 테스트로 고정한다.
