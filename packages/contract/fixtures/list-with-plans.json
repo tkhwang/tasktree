@@ -2,6 +2,30 @@
   "schemaVersion": 1,
   "project": "fullstack",
   "root": "/tmp/fullstack",
+  "baseRepos": [
+    {
+      "name": "backend",
+      "baseBranch": "master",
+      "branch": "master",
+      "present": true,
+      "dirty": false,
+      "changedFiles": 0,
+      "remoteAvailable": true,
+      "ahead": 0,
+      "behind": 0
+    },
+    {
+      "name": "frontend",
+      "baseBranch": "master",
+      "branch": "master",
+      "present": true,
+      "dirty": true,
+      "changedFiles": 1,
+      "remoteAvailable": true,
+      "ahead": 0,
+      "behind": 1
+    }
+  ],
   "tasks": [
     {
       "name": "feat-login",

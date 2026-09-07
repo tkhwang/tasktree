@@ -9,6 +9,10 @@
     "schemaVersion": { "const": 1 },
     "project": { "type": "string" },
     "root": { "type": "string" },
+    "baseRepos": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/baseRepo" }
+    },
     "tasks": {
       "type": "array",
       "items": { "$ref": "#/$defs/task" }
@@ -73,6 +77,22 @@
         "changedFiles": { "type": "integer", "minimum": 0 },
         "lastCommitSubject": { "type": "string" },
         "lastCommitAt": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "baseRepo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind"],
+      "properties": {
+        "name": { "type": "string" },
+        "baseBranch": { "type": "string" },
+        "branch": { "type": "string" },
+        "present": { "type": "boolean" },
+        "dirty": { "type": "boolean" },
+        "changedFiles": { "type": "integer", "minimum": 0 },
+        "remoteAvailable": { "type": "boolean" },
+        "ahead": { "type": "integer", "minimum": 0 },
+        "behind": { "type": "integer", "minimum": 0 }
       }
     }
   }
