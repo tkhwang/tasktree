@@ -59,19 +59,19 @@ export async function startWorkspaceMonitor(
 	let scheduled = false;
 	let fullQueued = false;
 	let currentState: GlobalState | undefined;
-	let watchedRoots: readonly string[] = [];
 	let pendingRoots = new Set<string>();
 	let pending = Promise.resolve();
 	let heartbeat: TimerHandle | undefined;
 
-	const applyState = async (state: GlobalState): Promise<void> => {
+	const applyState = async (
+		state: GlobalState,
+		reconcileWatches = true,
+	): Promise<void> => {
 		if (stopped) return;
 		currentState = state;
 		deps.onState(state);
-		const roots = state.projects.map((project) => project.root);
-		if (!sameRoots(watchedRoots, roots)) {
-			await deps.watchRoots(roots);
-			watchedRoots = roots;
+		if (reconcileWatches) {
+			await deps.watchRoots(state.projects.map((project) => project.root));
 		}
 	};
 
@@ -105,10 +105,13 @@ export async function startWorkspaceMonitor(
 			deps.onError(error);
 			const state = latestState();
 			if (state === undefined) return;
-			await applyState({
-				projects: state.projects,
-				errors: replaceRootError(state.errors, root, errorMessage(error)),
-			});
+			await applyState(
+				{
+					projects: state.projects,
+					errors: replaceRootError(state.errors, root, errorMessage(error)),
+				},
+				false,
+			);
 		}
 	};
 
@@ -158,9 +161,14 @@ export async function startWorkspaceMonitor(
 		scheduleDrain();
 	};
 
-	scheduleFullRefresh();
-	await pending;
 	const unlisten = await deps.onRootChanged(scheduleRootRefresh);
+	try {
+		scheduleFullRefresh();
+		await pending;
+	} catch (error) {
+		unlisten();
+		throw error;
+	}
 	if (deps.heartbeatMs !== undefined) {
 		const setTimer = deps.setTimer ?? window.setInterval;
 		heartbeat = setTimer(scheduleFullRefresh, deps.heartbeatMs);
@@ -177,11 +185,4 @@ export async function startWorkspaceMonitor(
 		},
 		settle: () => pending,
 	};
-}
-
-function sameRoots(left: readonly string[], right: readonly string[]): boolean {
-	return (
-		left.length === right.length &&
-		left.every((root, index) => root === right[index])
-	);
 }

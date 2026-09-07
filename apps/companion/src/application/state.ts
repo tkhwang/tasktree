@@ -172,7 +172,9 @@ export function buildMainViewModel(state: GlobalState): MainViewModel {
 }
 
 export function buildMenuModel(state: GlobalState): MenuModel {
-	const projects = state.projects.filter((project) => project.tasks.length > 0);
+	const projects = state.projects.filter(
+		(project) => project.tasks.length > 0 || project.baseRepos.length > 0,
+	);
 	const tasks = projects.flatMap((project) => project.tasks);
 	return {
 		summary: {

@@ -327,6 +327,54 @@ describe("ACL", () => {
 		expect(model.summary.notifications).toBe(2);
 	});
 
+	it.each([
+		null,
+		"git-read-failed",
+	] as const)("counts a taskless project with visible base rows (%s)", (inspectionError) => {
+		const baseOnly = {
+			name: "base-only",
+			root: "/tmp/base-only",
+			tasks: [],
+			baseRepos: [
+				{
+					name: "backend",
+					baseBranch: "main",
+					branch: inspectionError === null ? "main" : "",
+					present: true,
+					dirty: false,
+					changedFiles: 0,
+					remoteAvailable: inspectionError === null,
+					ahead: 0,
+					behind: 0,
+					inspectionError,
+				},
+			],
+		};
+		expect(
+			buildMenuModel({ projects: [baseOnly], errors: [] }).summary,
+		).toMatchObject({
+			projectCount: 1,
+			taskCount: 0,
+			active: 0,
+			notifications: 0,
+		});
+		const state = mapGlobalDocumentToState(document);
+		const mixed = buildMenuModel({
+			...state,
+			projects: [
+				...state.projects,
+				baseOnly,
+				{ name: "empty", root: "/tmp/empty", tasks: [], baseRepos: [] },
+			],
+		});
+		expect(mixed.summary).toMatchObject({
+			projectCount: 2,
+			taskCount: 1,
+			active: 1,
+			notifications: 2,
+		});
+	});
+
 	it("rolls up non-empty projects without retaining presentation groups", () => {
 		const multiProjectDocument: WorkbranchListGlobalDocument = {
 			schemaVersion: 1,

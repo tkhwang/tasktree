@@ -1,9 +1,8 @@
-use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
-use tauri::{AppHandle, State};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter, State};
 use thiserror::Error;
 
 mod activity_store;
@@ -11,12 +10,13 @@ mod process_env;
 mod tray;
 mod watch_filter;
 mod watch_roots;
+mod watch_scope;
 mod workbranch_bin;
 #[cfg(test)]
 mod workbranch_command_tests;
 
 use process_env::gui_safe_path;
-use watch_roots::build_watchers;
+use watch_roots::{WatcherSet, reconcile_watchers};
 use workbranch_bin::resolve_workbranch_bin;
 
 #[derive(Debug, Error)]
@@ -33,7 +33,7 @@ enum CompanionError {
 
 #[derive(Default)]
 struct WatcherStore {
-    watchers: Mutex<Vec<RecommendedWatcher>>,
+    watchers: Arc<Mutex<WatcherSet>>,
 }
 
 impl serde::Serialize for CompanionError {
@@ -163,17 +163,20 @@ async fn watch_roots(
 ) -> Result<WatchResult, CompanionError> {
     let app_for_watchers = app.clone();
     let roots_for_watchers = roots.clone();
-    let next_watchers = tauri::async_runtime::spawn_blocking(move || {
-        build_watchers(app_for_watchers, &roots_for_watchers)
+    let watcher_store = Arc::clone(&watchers.watchers);
+    let changed_roots = tauri::async_runtime::spawn_blocking(move || {
+        let mut guard = watcher_store
+            .lock()
+            .map_err(|_| std::io::Error::other("watcher store lock poisoned"))?;
+        reconcile_watchers(app_for_watchers, &roots_for_watchers, &mut guard)
     })
     .await
     .map_err(|error| std::io::Error::other(error.to_string()))??;
 
-    let mut guard = watchers
-        .watchers
-        .lock()
-        .map_err(|_| std::io::Error::other("watcher store lock poisoned"))?;
-    *guard = next_watchers;
+    for root in changed_roots {
+        app.emit("roots-changed", root)
+            .map_err(std::io::Error::other)?;
+    }
     Ok(WatchResult { roots })
 }
 

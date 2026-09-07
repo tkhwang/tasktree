@@ -4,7 +4,7 @@
 
 **Goal:** Companion Main view의 `WORKTREE STATUS` 보드 맨 위에 `00 BASE` 그룹을 추가해, 각 프로젝트 base repo(`_base/<repo>`)의 현재 branch, remote(`origin/<baseBranch>`) 대비 ahead/behind, dirty 상태를 한 줄씩 보여주고, 조치가 필요할 때만 `PULL`/`PUSH`/`CHECK` pill로 다음 동작을 알린다. 사용자는 메뉴바를 열자마자 "base가 remote와 어긋났는지, 지저분한지"를 task 목록을 읽기 전에 확인할 수 있어야 한다.
 
-**Architecture:** 기존 CLI `list --global --json` → contract → `parseContract` → ACL → domain → `buildMainViewModel` → `StageBoard` 흐름을 유지한다. CLI `cmd_list_json`이 project 수준 `baseRepos[]`(optional, schema v1 유지)를 wire로 내려주고, Companion은 domain `Project.baseRepos`(required, ACL이 `[]` 정규화)로 매핑한다. `MainViewModel.baseRows` projection이 프로젝트·config 순서를 유지한 행 목록을 만들고, `StageBoard`가 캡션 아래·`01 PLAN` 위에 `00 BASE` 그룹을 렌더링한다. 건강 상태/다음 동작 판정은 domain 순수 함수, facts 문구는 UI helper가 소유한다. Rust/Tauri는 JSON을 그대로 전달하므로 변경이 없다.
+**Architecture:** 기존 CLI `list --global --json` → contract → `parseContract` → ACL → domain → `buildMainViewModel` → `StageBoard` 흐름을 유지한다. CLI `cmd_list_json`이 project 수준 `baseRepos[]`(optional, schema v1 유지)를 wire로 내려주고, Companion은 domain `Project.baseRepos`(required, ACL이 `[]` 정규화)로 매핑한다. `MainViewModel.baseRows` projection이 프로젝트·config 순서를 유지한 행 목록을 만들고, `StageBoard`가 캡션 아래·`01 PLAN` 위에 `00 BASE` 그룹을 렌더링한다. 건강 상태/다음 동작 판정은 domain 순수 함수, facts 문구는 UI helper가 소유한다. Tauri command/JSON API는 유지한다. PR #190 후속 수정에서는 Rust watcher가 프로젝트 밖의 Git metadata도 감시하고, 성공한 refresh마다 감시 범위를 재조정한다.
 
 **Tech Stack:** Bash CLI(단일 파일 조립: `apps/cli/scripts/build-workbranch.sh` 재빌드 필수), JSON Schema 2020-12 + Ajv contract test, Tauri v2, React 18, TypeScript strict mode, plain CSS, Vitest + `renderToStaticMarkup`, Biome, pnpm.
 
@@ -38,7 +38,7 @@
   - Recommended rationale: 실행 전 정리가 필요한 상태를 바로 pull할 수 있는 상태와 구분한다. 대안은 pill을 단순 remote 차이 방향 표시로 재정의하는 것이다.
   - Status: resolved(user, A) — dirty + behind는 CHECK로 먼저 정리를 안내한다. dirty가 해소되고 여전히 behind이면 PULL로 바뀐다. clean + behind는 PULL, ahead-only는 dirty 여부와 무관하게 기존 PUSH, dirty-only는 pill 없음이다. 조회 오류/missing/mismatch/no remote/diverged의 CHECK 우선순위는 유지한다. pill은 마지막 조회 facts에 따른 다음 동작 안내이며 실행 가능성 전체나 원격 최신 상태를 보증하지 않는다.
 
-질문 없이 repo 근거로 확정한 보완: 실제 worktree 식별 및 branch 경계 테스트(D1/Task 1), `DESIGN.md`의 compact/ellipsis·전체 문구 접근 계약에 맞춘 facts 폭 제한(D5/D6), 보드 내부 잘림 검사와 실행 CLI 경로 확인(Task 6). 기존 파일·타입 배치를 유지하고 신규 영구 파일/디렉터리/패키지 export는 추가하지 않는다. 사용자 실제 registry/저장소 변경 및 native 실환경 확인은 기존 별도 확인 범위를 유지한다.
+질문 없이 repo 근거로 확정한 보완: 실제 worktree 식별 및 branch 경계 테스트(D1/Task 1), `DESIGN.md`의 compact/ellipsis·전체 문구 접근 계약에 맞춘 facts 폭 제한(D5/D6), 보드 내부 잘림 검사와 실행 CLI 경로 확인(Task 6). 초기 구현은 기존 파일·타입 배치를 유지했다. 이후 PR #190 수정 요청에서는 외부 Git 감시를 위해 Rust watch_scope 모듈과 watcher 테스트 파일을 추가하며, 새 dependency나 package export는 추가하지 않는다. 사용자 실제 registry/저장소 변경 및 native 실환경 확인은 기존 별도 확인 범위를 유지한다.
 
 ### 기존 결정
 
@@ -247,7 +247,7 @@ export type MainBaseRow = {
 - pill 클릭으로 `workbranch pull/push` 실행, Tauri command 추가
 - `list --json` 실행 시 `git fetch`
 - base repo 변화의 activity event 반영, Activity/Settings 뷰 변경
-- Rust/Tauri command·state 변경, 새 dependency
+- 새 Tauri command·JSON API, 새 dependency (PR #190 후속 요청에 따른 Rust 내부 watcher 보완은 범위에 포함)
 - 사용자 registry의 실제 3개 프로젝트에 대한 native Tauri QA(사용자 확인 항목)
 
 ## 변경 파일 구조
@@ -275,6 +275,14 @@ apps/companion/tests/activity-refresh.test.ts         # base 변화 무시 계�
 apps/companion/tests/stage-board.test.tsx             # 00 BASE rendering 계약 + fixture
 apps/companion/tests/app-shell.test.tsx               # baseRows 배선 + CSS 계약
 apps/companion/tests/*.ts(x)                          # Project fixture에 baseRepos: [] 추가
+apps/companion/src/infrastructure/workspaceMonitor.ts # PR190 refresh마다 watcher 범위 재조정
+apps/companion/src-tauri/src/watch_roots.rs           # PR190 metadata watch/원자적 교체
+apps/companion/src-tauri/src/watch_scope.rs           # PR190 외부 git-dir/common-dir 탐색
+apps/companion/src-tauri/src/lib.rs                   # PR190 watcher store 통합
+apps/companion/src-tauri/src/watch_roots_tests.rs     # PR190 실제 notify event 검증
+apps/companion/src-tauri/src/watch_scope_tests.rs     # PR190 경로/소유자/오류 격리 검증
+apps/companion/tests/workspace-monitor.test.ts        # PR190 재조정/초기 이벤트/실패 회귀
+docs/specs/0001-workbranch-mvp.md                     # canonical baseRepos 계약
 DESIGN.md                                             # IA 항목 + Direction history
 README.md, README.ko.md                               # Companion Main view 설명에 base repo 상태 추가
 ```
@@ -391,3 +399,14 @@ git diff --check
 - 시각 QA: Claude/Codex × 520/460 × medium/extra-large × live/clean/edge/long/legacy = 40개 capture와 geometry 검사 PASS. 136개 base 행에서 보드/행 overflow, dot/pill 잘림, 불필요한 focusable 요소 없음. 두 독립 시각 리뷰 PASS; 코드 spec/quality/security 경계 리뷰 PASS.
 - 재현 자료: `/tmp/workbranch-0057-qa.B0CuMs/render.mjs`, `live-before.json`, `live-clean.json`, `visual-metrics.json`, `review-summary.md`, PNG 40개. 실제 Chrome에서 초기 BASE 화면과 접근성 문구도 확인했다. 접근 불가한 원본 mockup과의 pixel 동일성은 주장하지 않는다.
 - 실환경 연결 확인: `/tmp/workbranch-0057-runtime-cli-check.json`. 실제 resolver는 `/opt/homebrew/bin/workbranch`를 선택하며 현재 3개 project 모두 baseRepos가 없다. 새 CLI를 설치/명시 연결한 뒤 native 앱의 BASE 표시를 확인해야 한다. 이 적용/사용자 확인은 아직 수행하지 않았다.
+
+## PR #190 후속 수정
+
+사용자의 PR 리뷰 수정·커밋·푸시 요청에 따라 기존 초기 범위를 아래처럼 보완한다.
+
+- canonical MVP 명세에 optional baseRepos, 10개 필드, cached-ref/no-fetch 및 repo별 오류 격리 계약을 명시한다.
+- 헤더 projectCount는 task 또는 표시할 base repo가 있는 성공 project를 센다. taskCount·활동/알림 집계는 task 전용으로 유지한다.
+- `.git` file의 외부 git-dir/common-dir를 metadata 전용으로 감시한다. 공통 디렉터리는 소유 project로 이벤트를 전달하며, 성공 refresh에서 감시 범위를 재발견해 변경된 범위만 재설치한다. 변경되지 않은 범위에는 초기 이벤트를 다시 발행하지 않아 refresh loop를 막는다. root refresh 실패로 보존한 데이터는 watcher 재조정을 유발하지 않는다.
+- 사용자 registry/설치 CLI 변경, 네트워크 fetch 추가, 새로운 Tauri command/JSON API 추가는 하지 않는다.
+
+후속 검증: CLI 295건, contract 7건, Companion 189건, Rust 34건 PASS. typecheck/lint, cargo fmt/clippy(-D warnings), Tauri release build PASS. taskless base 프로젝트의 실제 production header 렌더링에서 1 project · 0 tasks를 확인했다. 외부 git-dir/common-dir와 일반 root의 실제 notify 이벤트, 잘못된 metadata 격리, 공유 소유자·변경 범위·초기 refresh loop 회귀를 검증했다. 최종 커밋 기준 독립 리뷰와 CI 결과는 PR #190 댓글 및 task workspace의 PR evidence ledger에 기록한다.
