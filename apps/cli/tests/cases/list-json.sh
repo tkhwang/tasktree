@@ -491,6 +491,91 @@ assert [item["text"] for item in plan["items"]] == ["contract"], login'
 }
 
 
+test_list_json_base_repos_shape() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+d = json.load(sys.stdin)
+assert [r["name"] for r in d["baseRepos"]] == ["frontend", "backend"], d
+for repo in d["baseRepos"]:
+    assert set(repo) == {"name", "baseBranch", "branch", "present", "dirty", "changedFiles", "remoteAvailable", "ahead", "behind"}, repo
+    assert repo["baseBranch"] == "master", repo
+    assert repo["branch"] == "master", repo
+    assert repo["present"] is True, repo
+    assert repo["dirty"] is False, repo
+    assert repo["changedFiles"] == 0, repo
+    assert repo["remoteAvailable"] is True, repo
+    assert repo["ahead"] == 0, repo
+    assert repo["behind"] == 0, repo'
+}
+
+test_list_json_base_repos_remote_diff_and_dirty() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  commit_to_remote_master frontend remote-frontend
+  git -C "$project/_base/frontend" fetch origin >/dev/null 2>&1
+
+  git -C "$project/_base/backend" config user.name "Workbranch Test"
+  git -C "$project/_base/backend" config user.email "workbranch-test@example.com"
+  printf '%s\n' "local backend" > "$project/_base/backend/local-backend.txt"
+  git -C "$project/_base/backend" add local-backend.txt
+  git -C "$project/_base/backend" commit -m "local backend" >/dev/null
+  printf '%s\n' untracked > "$project/_base/backend/untracked.txt"
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = {r["name"]: r for r in json.load(sys.stdin)["baseRepos"]}
+frontend = repos["frontend"]
+assert frontend["present"] is True, frontend
+assert frontend["dirty"] is False, frontend
+assert frontend["changedFiles"] == 0, frontend
+assert frontend["remoteAvailable"] is True, frontend
+assert frontend["behind"] == 1, frontend
+assert frontend["ahead"] == 0, frontend
+backend = repos["backend"]
+assert backend["present"] is True, backend
+assert backend["dirty"] is True, backend
+assert backend["changedFiles"] == 1, backend
+assert backend["remoteAvailable"] is True, backend
+assert backend["ahead"] == 1, backend
+assert backend["behind"] == 0, backend'
+}
+
+test_list_json_base_repos_missing_worktree_and_remote() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  run_expect_success "$WORKBRANCH" init >/dev/null
+
+  rm -rf "$project/_base/frontend"
+  git -C "$project/_base/backend" update-ref -d refs/remotes/origin/master
+
+  out=$(run_expect_success "$WORKBRANCH" list --json)
+  printf '%s' "$out" | python3 -c 'import json, sys
+repos = {r["name"]: r for r in json.load(sys.stdin)["baseRepos"]}
+frontend = repos["frontend"]
+assert frontend["present"] is False, frontend
+assert frontend["branch"] == "", frontend
+assert frontend["dirty"] is False, frontend
+assert frontend["changedFiles"] == 0, frontend
+assert frontend["remoteAvailable"] is False, frontend
+assert frontend["ahead"] == 0, frontend
+assert frontend["behind"] == 0, frontend
+backend = repos["backend"]
+assert backend["present"] is True, backend
+assert backend["remoteAvailable"] is False, backend
+assert backend["ahead"] == 0, backend
+assert backend["behind"] == 0, backend'
+}
+
+
 test_list_global_json_projects_and_errors() {
   new_fixture
   project="$FIXTURE_PROJECT"

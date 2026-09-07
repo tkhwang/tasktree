@@ -4110,6 +4110,7 @@ cmd_list_json() {
   local first_task first_repo path task name repo_path branch title plan_title dirty status counts progress_done progress_total current_item updated_at
   local i base_commit status_output changed_files ahead behind last_commit last_commit_at last_commit_subject record_separator
   local -a base_commits
+  local first_base_repo base_branch present remote_available remote_commit
   base_commits=()
   i=0
   while [ $i -lt ${#REPO_NAMES[@]} ]; do
@@ -4124,7 +4125,69 @@ cmd_list_json() {
   json_string "$PROJECT_NAME"
   printf ',"root":'
   json_string "$PROJECT_ROOT"
-  printf ',"tasks":['
+  printf ',"baseRepos":['
+  first_base_repo=1
+  i=0
+  while [ $i -lt ${#REPO_NAMES[@]} ]; do
+    name=$(repo_name_at "$i")
+    base_branch=$(repo_base_branch_at "$i")
+    repo_path=$(base_repo_path "$name")
+    if [ -d "$repo_path" ] && git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1; then
+      present=true
+      branch=$(git -C "$repo_path" branch --show-current 2>/dev/null)
+      status_output=$(git -C "$repo_path" status --porcelain 2>/dev/null) || status_output=""
+      if [ -n "$status_output" ]; then
+        dirty=true
+        changed_files=$(printf '%s\n' "$status_output" | awk 'END { print NR }')
+      else
+        dirty=false
+        changed_files=0
+      fi
+      if remote_commit=$(git -C "$repo_path" rev-parse --verify --quiet "refs/remotes/origin/$base_branch^{commit}" 2>/dev/null); then
+        remote_available=true
+        if counts=$(commit_diff_counts "$repo_path" "$remote_commit"); then
+          set -- $counts
+          behind=${1:-0}
+          ahead=${2:-0}
+        else
+          ahead=0
+          behind=0
+        fi
+      else
+        remote_available=false
+        ahead=0
+        behind=0
+      fi
+    else
+      present=false
+      branch=""
+      dirty=false
+      changed_files=0
+      remote_available=false
+      ahead=0
+      behind=0
+    fi
+    if [ $first_base_repo -eq 1 ]; then
+      first_base_repo=0
+    else
+      printf ','
+    fi
+    printf '{"name":'
+    json_string "$name"
+    printf ',"baseBranch":'
+    json_string "$base_branch"
+    printf ',"branch":'
+    json_string "$branch"
+    printf ',"present":%s' "$present"
+    printf ',"dirty":%s' "$dirty"
+    printf ',"changedFiles":%s' "$changed_files"
+    printf ',"remoteAvailable":%s' "$remote_available"
+    printf ',"ahead":%s' "$ahead"
+    printf ',"behind":%s' "$behind"
+    printf '}'
+    i=$((i + 1))
+  done
+  printf '],"tasks":['
   first_task=1
   for path in "$PROJECT_ROOT"/*; do
     is_task_workspace_path "$path" || continue

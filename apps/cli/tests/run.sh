@@ -196,6 +196,9 @@ main() {
   run_test test_list_json_implicit_and_empty_plans
   run_test test_list_json_duplicate_plan_titles_keep_distinct_indexes
   run_test test_list_json_nested_headings_stay_inside_current_plan
+  run_test test_list_json_base_repos_shape
+  run_test test_list_json_base_repos_remote_diff_and_dirty
+  run_test test_list_json_base_repos_missing_worktree_and_remote
   run_test test_current_plan_brief_h1_status_and_active_json_contract
   run_test test_plan_archive_done_command_archives_active_plan_without_activity_write
   run_test test_plan_archive_slug_collision_suffix_and_no_plan_error
