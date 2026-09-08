@@ -1,7 +1,7 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "WorkbranchCompanion",
-	"version": "2.19.0",
+	"version": "2.20.0",
 	"identifier": "dev.tkhwang.workbranch.companion",
 	"build": {
 		"beforeDevCommand": "pnpm dev",

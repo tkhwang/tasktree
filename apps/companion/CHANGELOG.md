@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.20.0](https://github.com/tkhwang/workbranch/compare/workbranch-companion-v2.19.0...workbranch-companion-v2.20.0) (2026-09-08)
+
+
+### Features
+
+* **companion:** map base repos into the domain model ([37dd141](https://github.com/tkhwang/workbranch/commit/37dd141d6fc2f065d293340e5c789ab9c1304f74))
+* **design:** update status view design document ([bf81d89](https://github.com/tkhwang/workbranch/commit/bf81d898bf764687e34409227eb388cad55cea1e))
+* **ui:** update status check UI ([f48b6ec](https://github.com/tkhwang/workbranch/commit/f48b6ec48114175d42c5c09a64dab73ffa2a14c3))
+
+
+### Bug Fixes
+
+* **companion:** address base repository review feedback ([e9827d0](https://github.com/tkhwang/workbranch/commit/e9827d0fc36a09a2040f7a185543864dc9eea4b2))
+* **companion:** preserve legacy watch configuration support ([7a3192f](https://github.com/tkhwang/workbranch/commit/7a3192fad554df4bd1317422f7af02c1f81bf507))
+
 ## [2.19.0](https://github.com/tkhwang/workbranch/compare/workbranch-companion-v2.18.0...workbranch-companion-v2.19.0) (2026-09-04)
 
 
