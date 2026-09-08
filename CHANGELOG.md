@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.22.0](https://github.com/tkhwang/workbranch/compare/v2.21.0...v2.22.0) (2026-09-08)
+
+
+### Features
+
+* **design:** update status view design document ([bf81d89](https://github.com/tkhwang/workbranch/commit/bf81d898bf764687e34409227eb388cad55cea1e))
+* **list:** add base repo status to list --json ([939836d](https://github.com/tkhwang/workbranch/commit/939836db177c20f30b91601768e6e62c75afa270))
+* **ui:** update status check UI ([f48b6ec](https://github.com/tkhwang/workbranch/commit/f48b6ec48114175d42c5c09a64dab73ffa2a14c3))
+
 ## [2.21.0](https://github.com/tkhwang/workbranch/compare/v2.20.0...v2.21.0) (2026-09-04)
 
 
