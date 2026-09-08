@@ -42,10 +42,24 @@ export type WorkbranchTask = {
 	readonly repos: readonly WorkbranchRepo[];
 };
 
+export type WorkbranchBaseRepo = {
+	readonly name: string;
+	readonly baseBranch: string;
+	readonly branch: string;
+	readonly present: boolean;
+	readonly dirty: boolean;
+	readonly changedFiles: number;
+	readonly remoteAvailable: boolean;
+	readonly ahead: number;
+	readonly behind: number;
+	readonly inspectionError: "invalid-worktree" | "git-read-failed" | null;
+};
+
 export type WorkbranchListDocument = {
 	readonly schemaVersion: 1;
 	readonly project: string;
 	readonly root: string;
+	readonly baseRepos?: readonly WorkbranchBaseRepo[];
 	readonly tasks: readonly WorkbranchTask[];
 };
 

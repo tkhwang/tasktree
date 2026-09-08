@@ -96,6 +96,63 @@ test("fixtures satisfy published list schemas", () => {
 	);
 });
 
+test("base repository rows reject a missing inspection error field", () => {
+	const ajv = validator();
+	const validateList = ajv.getSchema("workbranch-list.schema.json");
+	assert.ok(validateList);
+	const document = structuredClone(readJson("fixtures/list-with-plans.json"));
+	delete document.baseRepos[0].inspectionError;
+	assert.equal(validateList(document), false);
+});
+
+test("base repository rows reject an unknown inspection error code", () => {
+	const ajv = validator();
+	const validateList = ajv.getSchema("workbranch-list.schema.json");
+	assert.ok(validateList);
+	const document = structuredClone(readJson("fixtures/list-with-plans.json"));
+	document.baseRepos[0].inspectionError = "unknown";
+	assert.equal(validateList(document), false);
+});
+
+test("base repository rows accept valid inspection errors", () => {
+	const ajv = validator();
+	const validateList = ajv.getSchema("workbranch-list.schema.json");
+	assert.ok(validateList);
+	const document = structuredClone(readJson("fixtures/list-with-plans.json"));
+	document.baseRepos[0] = {
+		name: "backend",
+		baseBranch: "master",
+		branch: "",
+		present: false,
+		dirty: false,
+		changedFiles: 0,
+		remoteAvailable: false,
+		ahead: 0,
+		behind: 0,
+		inspectionError: "git-read-failed",
+	};
+	document.baseRepos[1] = {
+		name: "frontend",
+		baseBranch: "master",
+		branch: "",
+		present: false,
+		dirty: false,
+		changedFiles: 0,
+		remoteAvailable: false,
+		ahead: 0,
+		behind: 0,
+		inspectionError: "invalid-worktree",
+	};
+	validateOrThrow(validateList, document);
+});
+
+test("list documents accept legacy payloads without base repositories", () => {
+	const ajv = validator();
+	const validateList = ajv.getSchema("workbranch-list.schema.json");
+	assert.ok(validateList);
+	validateOrThrow(validateList, readJson("fixtures/list-empty.json"));
+});
+
 test("live CLI list output satisfies contract schema", () => {
 	const { project, tmpRoot } = createProject();
 	try {

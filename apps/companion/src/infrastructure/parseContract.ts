@@ -1,4 +1,5 @@
 import type {
+	WorkbranchBaseRepo,
 	WorkbranchChecklistItem,
 	WorkbranchListDocument,
 	WorkbranchListGlobalDocument,
@@ -25,6 +26,16 @@ function isOptionalNonNegativeInteger(value: unknown): boolean {
 
 function isOptionalString(value: unknown): boolean {
 	return value === undefined || isString(value);
+}
+
+function isInspectionError(
+	value: unknown,
+): value is WorkbranchBaseRepo["inspectionError"] {
+	return (
+		value === null ||
+		value === "invalid-worktree" ||
+		value === "git-read-failed"
+	);
 }
 
 function isChecklistItem(value: unknown): value is WorkbranchChecklistItem {
@@ -95,6 +106,24 @@ function isTask(value: unknown): value is WorkbranchTask {
 	);
 }
 
+function isBaseRepo(value: unknown): value is WorkbranchBaseRepo {
+	if (!isRecord(value)) {
+		return false;
+	}
+	return (
+		isString(value["name"]) &&
+		isString(value["baseBranch"]) &&
+		isString(value["branch"]) &&
+		typeof value["present"] === "boolean" &&
+		typeof value["dirty"] === "boolean" &&
+		isNonNegativeInteger(value["changedFiles"]) &&
+		typeof value["remoteAvailable"] === "boolean" &&
+		isNonNegativeInteger(value["ahead"]) &&
+		isNonNegativeInteger(value["behind"]) &&
+		isInspectionError(value["inspectionError"])
+	);
+}
+
 function isListDocument(value: unknown): value is WorkbranchListDocument {
 	if (!isRecord(value)) {
 		return false;
@@ -103,6 +132,9 @@ function isListDocument(value: unknown): value is WorkbranchListDocument {
 		value["schemaVersion"] === 1 &&
 		isString(value["project"]) &&
 		isString(value["root"]) &&
+		(value["baseRepos"] === undefined ||
+			(Array.isArray(value["baseRepos"]) &&
+				value["baseRepos"].every(isBaseRepo))) &&
 		Array.isArray(value["tasks"]) &&
 		value["tasks"].every(isTask)
 	);

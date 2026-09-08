@@ -2,7 +2,13 @@ import type {
 	WorkbranchListDocument,
 	WorkbranchListGlobalDocument,
 } from "@workbranch/contract";
-import type { GlobalState, Plan, Project, Task } from "../domain/model";
+import type {
+	BaseRepo,
+	GlobalState,
+	Plan,
+	Project,
+	Task,
+} from "../domain/model";
 import { isPlanStatus } from "../domain/model";
 import { buildStepTree } from "../domain/steps";
 
@@ -71,11 +77,29 @@ function mapTask(dto: WorkbranchListDocument["tasks"][number]): Task {
 	};
 }
 
+function mapBaseRepo(
+	dto: NonNullable<WorkbranchListDocument["baseRepos"]>[number],
+): BaseRepo {
+	return {
+		name: dto.name,
+		baseBranch: dto.baseBranch,
+		branch: dto.branch,
+		present: dto.present,
+		dirty: dto.dirty,
+		changedFiles: dto.changedFiles,
+		remoteAvailable: dto.remoteAvailable,
+		ahead: dto.ahead,
+		behind: dto.behind,
+		inspectionError: dto.inspectionError,
+	};
+}
+
 export function mapListDocumentToProject(dto: WorkbranchListDocument): Project {
 	return {
 		name: dto.project,
 		root: dto.root,
 		tasks: dto.tasks.map(mapTask),
+		baseRepos: (dto.baseRepos ?? []).map(mapBaseRepo),
 	};
 }
 

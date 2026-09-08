@@ -2,6 +2,9 @@ cmd_list_json() {
   local first_task first_repo path task name repo_path branch title plan_title dirty status counts progress_done progress_total current_item updated_at
   local i base_commit status_output changed_files ahead behind last_commit last_commit_at last_commit_subject record_separator
   local -a base_commits
+  local first_base_repo base_branch present remote_available remote_commit remote_ref inspection_error
+  local canonical_repo_path canonical_top_level inside_work_tree top_level git_status
+  local parent_path parent_parent_path
   base_commits=()
   i=0
   while [ $i -lt ${#REPO_NAMES[@]} ]; do
@@ -16,7 +19,126 @@ cmd_list_json() {
   json_string "$PROJECT_NAME"
   printf ',"root":'
   json_string "$PROJECT_ROOT"
-  printf ',"tasks":['
+  printf ',"baseRepos":['
+  first_base_repo=1
+  i=0
+  while [ $i -lt ${#REPO_NAMES[@]} ]; do
+    name=$(repo_name_at "$i")
+    base_branch=$(repo_base_branch_at "$i")
+    repo_path=$(base_repo_path "$name")
+    present=false
+    branch=""
+    dirty=false
+    changed_files=0
+    remote_available=false
+    ahead=0
+    behind=0
+    inspection_error=""
+    if [ ! -e "$repo_path" ] && [ ! -L "$repo_path" ]; then
+      parent_path=${repo_path%/*}
+      parent_parent_path=${parent_path%/*}
+      if { [ -d "$parent_path" ] && [ -x "$parent_path" ]; } || {
+        [ ! -e "$parent_path" ] && [ ! -L "$parent_path" ] && [ -d "$parent_parent_path" ] && [ -x "$parent_parent_path" ]
+      }; then
+        :
+      else
+        inspection_error="git-read-failed"
+      fi
+    elif [ ! -d "$repo_path" ]; then
+      inspection_error="invalid-worktree"
+    elif ! canonical_repo_path=$(cd "$repo_path" 2>/dev/null && pwd -P); then
+      inspection_error="git-read-failed"
+    else
+      inside_work_tree=$(git -C "$repo_path" rev-parse --is-inside-work-tree 2>/dev/null)
+      git_status=$?
+      if [ $git_status -ne 0 ]; then
+        if [ -e "$repo_path/.git" ] || [ -L "$repo_path/.git" ]; then
+          inspection_error="git-read-failed"
+        else
+          inspection_error="invalid-worktree"
+        fi
+      elif [ "$inside_work_tree" != "true" ]; then
+        inspection_error="invalid-worktree"
+      elif ! top_level=$(git -C "$repo_path" rev-parse --show-toplevel 2>/dev/null); then
+        inspection_error="git-read-failed"
+      elif ! canonical_top_level=$(cd "$top_level" 2>/dev/null && pwd -P); then
+        inspection_error="git-read-failed"
+      elif [ "$canonical_top_level" != "$canonical_repo_path" ]; then
+        inspection_error="invalid-worktree"
+      else
+        present=true
+        if ! branch=$(git -C "$repo_path" branch --show-current 2>/dev/null); then
+          inspection_error="git-read-failed"
+        elif ! status_output=$(git -C "$repo_path" status --porcelain 2>/dev/null); then
+          inspection_error="git-read-failed"
+        else
+          if [ -n "$status_output" ]; then
+            dirty=true
+            changed_files=$(printf '%s\n' "$status_output" | awk 'END { print NR }')
+          fi
+          remote_ref="refs/remotes/origin/$base_branch"
+          remote_commit=$(git -C "$repo_path" rev-parse --verify --quiet "$remote_ref^{commit}" 2>/dev/null)
+          git_status=$?
+          if [ $git_status -eq 0 ]; then
+            remote_available=true
+            if counts=$(commit_diff_counts "$repo_path" "$remote_commit"); then
+              set -- $counts
+              behind=${1:-0}
+              ahead=${2:-0}
+            else
+              inspection_error="git-read-failed"
+            fi
+          elif [ $git_status -eq 1 ]; then
+            git -C "$repo_path" show-ref --verify --quiet "$remote_ref" 2>/dev/null
+            git_status=$?
+            if [ $git_status -eq 1 ]; then
+              git -C "$repo_path" symbolic-ref -q "$remote_ref" >/dev/null 2>&1
+              git_status=$?
+            fi
+            if [ $git_status -ne 1 ]; then
+              inspection_error="git-read-failed"
+            fi
+          else
+            inspection_error="git-read-failed"
+          fi
+        fi
+      fi
+    fi
+    if [ -n "$inspection_error" ]; then
+      branch=""
+      dirty=false
+      changed_files=0
+      remote_available=false
+      ahead=0
+      behind=0
+    fi
+    if [ $first_base_repo -eq 1 ]; then
+      first_base_repo=0
+    else
+      printf ','
+    fi
+    printf '{"name":'
+    json_string "$name"
+    printf ',"baseBranch":'
+    json_string "$base_branch"
+    printf ',"branch":'
+    json_string "$branch"
+    printf ',"present":%s' "$present"
+    printf ',"dirty":%s' "$dirty"
+    printf ',"changedFiles":%s' "$changed_files"
+    printf ',"remoteAvailable":%s' "$remote_available"
+    printf ',"ahead":%s' "$ahead"
+    printf ',"behind":%s' "$behind"
+    printf ',"inspectionError":'
+    if [ -n "$inspection_error" ]; then
+      json_string "$inspection_error"
+    else
+      printf 'null'
+    fi
+    printf '}'
+    i=$((i + 1))
+  done
+  printf '],"tasks":['
   first_task=1
   for path in "$PROJECT_ROOT"/*; do
     is_task_workspace_path "$path" || continue

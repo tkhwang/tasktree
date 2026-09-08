@@ -1,4 +1,10 @@
-import type { GlobalState, MatrixColumn, Repo, Task } from "../domain/model";
+import type {
+	BaseRepo,
+	GlobalState,
+	MatrixColumn,
+	Repo,
+	Task,
+} from "../domain/model";
 import { MATRIX_COLUMNS, matrixPlacement, taskStatus } from "../domain/model";
 
 export type MenuSummary = {
@@ -28,7 +34,16 @@ export type MainTaskRow = {
 	readonly latestActivityAt: number;
 };
 
+export type MainBaseRow = {
+	readonly key: string;
+	readonly project: string;
+	readonly root: string;
+	readonly repo: BaseRepo;
+	readonly showProject: boolean;
+};
+
 export type MainViewModel = {
+	readonly baseRows: readonly MainBaseRow[];
 	readonly matrixRows: readonly MainTaskRow[];
 	readonly stageGroups: readonly MainStageGroup[];
 	readonly idleRows: readonly MainTaskRow[];
@@ -90,6 +105,19 @@ function orderedRepos(repos: readonly Repo[]): readonly Repo[] {
 }
 
 export function buildMainViewModel(state: GlobalState): MainViewModel {
+	const showProject = state.projects.length > 1;
+	const baseRows = state.projects.flatMap((project) =>
+		project.baseRepos.map(
+			(repo) =>
+				({
+					key: `${project.root}:${repo.name}`,
+					project: project.name,
+					root: project.root,
+					repo,
+					showProject,
+				}) satisfies MainBaseRow,
+		),
+	);
 	const rows = state.projects.flatMap((project, projectIndex) =>
 		project.tasks.map((task, taskIndex) => {
 			const placement = roleForTask(task);
@@ -134,6 +162,7 @@ export function buildMainViewModel(state: GlobalState): MainViewModel {
 		.map(({ row }) => row);
 
 	return {
+		baseRows,
 		matrixRows,
 		stageGroups,
 		idleRows,
@@ -143,7 +172,9 @@ export function buildMainViewModel(state: GlobalState): MainViewModel {
 }
 
 export function buildMenuModel(state: GlobalState): MenuModel {
-	const projects = state.projects.filter((project) => project.tasks.length > 0);
+	const projects = state.projects.filter(
+		(project) => project.tasks.length > 0 || project.baseRepos.length > 0,
+	);
 	const tasks = projects.flatMap((project) => project.tasks);
 	return {
 		summary: {

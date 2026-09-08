@@ -47,10 +47,44 @@ export type Task = {
 	readonly updatedAt: number;
 };
 
+export type BaseRepo = {
+	readonly name: string;
+	readonly baseBranch: string;
+	readonly branch: string;
+	readonly present: boolean;
+	readonly dirty: boolean;
+	readonly changedFiles: number;
+	readonly remoteAvailable: boolean;
+	readonly ahead: number;
+	readonly behind: number;
+	readonly inspectionError: "invalid-worktree" | "git-read-failed" | null;
+};
+
+export type BaseRepoHealth = "ok" | "warn" | "bad";
+export type BaseRepoAction = "pull" | "push" | "check";
+
+export function baseRepoHealth(repo: BaseRepo): BaseRepoHealth {
+	if (repo.inspectionError !== null) return "bad";
+	if (!repo.present || !repo.remoteAvailable) return "bad";
+	if (repo.branch !== repo.baseBranch) return "bad";
+	if (repo.ahead > 0 && repo.behind > 0) return "bad";
+	if (repo.dirty || repo.ahead > 0 || repo.behind > 0) return "warn";
+	return "ok";
+}
+
+export function baseRepoAction(repo: BaseRepo): BaseRepoAction | undefined {
+	if (baseRepoHealth(repo) === "bad") return "check";
+	if (repo.dirty && repo.behind > 0) return "check";
+	if (repo.behind > 0) return "pull";
+	if (repo.ahead > 0) return "push";
+	return undefined;
+}
+
 export type Project = {
 	readonly name: string;
 	readonly root: string;
 	readonly tasks: readonly Task[];
+	readonly baseRepos: readonly BaseRepo[];
 };
 
 export type GlobalError = {

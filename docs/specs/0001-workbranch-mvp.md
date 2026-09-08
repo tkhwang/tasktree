@@ -165,7 +165,25 @@ Built-in macOS IDE app presets use `open -n` plus `--args --new-window` for VS C
 
 ### `workbranch list` / `workbranch list --json`
 
-Show configured repos, base branches, current branches, and task workspaces. `--json` emits a single machine-readable document with `schemaVersion`, `project`, `root`, and registered task workspaces only. Schema version 1 includes additive task progress fields for companion apps: `planTitle`, `status`, `progressDone`, `progressTotal`, `currentItem`, and `updatedAt`, alongside `notiCount` and `repos`. The required `memoTitle` field remains a legacy wire-compatibility alias for the first H1; new Companion semantic models must not depend on it. `updatedAt` is the task brief mtime as epoch seconds. Stale or partial task-shaped directories are excluded from JSON and remain diagnostic concerns for `doctor`/status-style flows.
+Show configured repos, base branches, current branches, and task workspaces. `--json` emits a single machine-readable document with `schemaVersion`, `project`, `root`, an optional project-level `baseRepos` array, and a `tasks` array containing registered task workspaces only. Schema version 1 includes additive task progress fields for companion apps: `planTitle`, `status`, `progressDone`, `progressTotal`, `currentItem`, and `updatedAt`, alongside `notiCount` and `repos`. The required `memoTitle` field remains a legacy wire-compatibility alias for the first H1; new Companion semantic models must not depend on it. `updatedAt` is the task brief mtime as epoch seconds. Stale or partial task-shaped directories are excluded from `tasks` and remain diagnostic concerns for `doctor`/status-style flows.
+
+`baseRepos` reports every configured base repository in configuration order, including missing or unreadable repositories. Older CLI documents may omit the array; Companion normalizes omission to `[]`. Every emitted base row has these ten required fields, as defined in `packages/contract/schema/workbranch-list.schema.json`:
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Configured repository name. |
+| `baseBranch` | Configured base branch. |
+| `branch` | Current branch; empty when detached, missing, or unavailable. |
+| `present` | Whether the configured path was confirmed as the actual Git worktree root, not a bare repository or an ancestor repository. |
+| `dirty` | Whether porcelain status contains changes. |
+| `changedFiles` | Non-negative porcelain status line count, using the same rule as task repositories. |
+| `remoteAvailable` | Whether `refs/remotes/origin/<baseBranch>` resolves to a commit. |
+| `ahead` / `behind` | Non-negative commit counts comparing HEAD with that cached remote-tracking commit, not the current branch's upstream. |
+| `inspectionError` | `null`, `"invalid-worktree"`, or `"git-read-failed"`. |
+
+Reads do not fetch. Confirmed missing worktrees use `present:false` and `inspectionError:null`; a confirmed absent remote ref uses `remoteAvailable:false` and zero difference counts. Invalid worktree paths and unexpected Git inspection failures remain local to their base row. They preserve `name`/`baseBranch`, reset unavailable Git facts to empty/false/zero sentinels, and set `inspectionError`; consumers must show an unavailable state rather than interpreting those sentinels as CLEAN or synchronized. `present` stays true on later inspection failure only if worktree-root validation succeeded. A base-row inspection error alone does not fail the project document, suppress otherwise registered tasks or healthy sibling rows, or add a project error to the `list --global --json` wrapper's `errors` array. Malformed project configuration/root failures retain existing project-level error handling.
+
+Companion counts successfully loaded projects that contribute either task rows or base repository rows; task totals remain task-only. Its PULL/PUSH/CHECK labels are non-interactive guidance based on the cached facts, not execution guarantees. Dirty + behind advises CHECK before PULL; inspection failures advise CHECK.
 
 ### `workbranch memo` / `workbranch noti`
 

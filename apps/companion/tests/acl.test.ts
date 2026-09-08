@@ -105,6 +105,170 @@ describe("ACL", () => {
 		});
 	});
 
+	it("maps base repo status entries into the project domain data", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const baseRepoDocument: WorkbranchListGlobalDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "feature/login",
+							present: true,
+							dirty: true,
+							changedFiles: 3,
+							remoteAvailable: true,
+							ahead: 2,
+							behind: 1,
+							inspectionError: null,
+						},
+					],
+				},
+			],
+		};
+
+		const parsed = parseGlobalDocument(JSON.stringify(baseRepoDocument));
+		const baseRepo = mapGlobalDocumentToState(parsed).projects[0]?.baseRepos[0];
+
+		expect(baseRepo).toEqual({
+			name: "backend",
+			baseBranch: "main",
+			branch: "feature/login",
+			present: true,
+			dirty: true,
+			changedFiles: 3,
+			remoteAvailable: true,
+			ahead: 2,
+			behind: 1,
+			inspectionError: null,
+		});
+	});
+
+	it("preserves an errored base repo with its sibling and project tasks", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const inspectionErrorDocument: WorkbranchListGlobalDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "frontend",
+							baseBranch: "main",
+							branch: "main",
+							present: true,
+							dirty: false,
+							changedFiles: 0,
+							remoteAvailable: true,
+							ahead: 0,
+							behind: 0,
+							inspectionError: null,
+						},
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "",
+							present: false,
+							dirty: false,
+							changedFiles: 0,
+							remoteAvailable: false,
+							ahead: 0,
+							behind: 0,
+							inspectionError: "git-read-failed",
+						},
+					],
+				},
+			],
+		};
+
+		const parsed = parseGlobalDocument(JSON.stringify(inspectionErrorDocument));
+		const mappedProject = mapGlobalDocumentToState(parsed).projects[0];
+
+		expect(mappedProject?.baseRepos).toEqual(
+			inspectionErrorDocument.projects[0]?.baseRepos,
+		);
+		expect(mappedProject?.tasks[0]?.name).toBe("feat-login");
+	});
+
+	it("defaults baseRepos to an empty array when the CLI omits it", () => {
+		const parsed = parseGlobalDocument(JSON.stringify(document));
+		expect(mapGlobalDocumentToState(parsed).projects[0]?.baseRepos).toEqual([]);
+	});
+
+	it("rejects a base repo entry that is missing a required field", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const invalidBaseRepoDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "feature/login",
+							present: true,
+							dirty: true,
+							changedFiles: 3,
+							remoteAvailable: true,
+							ahead: 2,
+							behind: 1,
+						},
+					],
+				},
+			],
+		};
+
+		expect(() =>
+			parseGlobalDocument(JSON.stringify(invalidBaseRepoDocument)),
+		).toThrow("invalid workbranch global list document");
+	});
+
+	it("rejects a base repo entry with an unknown inspection error", () => {
+		const project = document.projects.at(0);
+		if (project === undefined) {
+			throw new Error("test fixture requires one project");
+		}
+		const invalidBaseRepoDocument = {
+			...document,
+			projects: [
+				{
+					...project,
+					baseRepos: [
+						{
+							name: "backend",
+							baseBranch: "main",
+							branch: "",
+							present: false,
+							dirty: false,
+							changedFiles: 0,
+							remoteAvailable: false,
+							ahead: 0,
+							behind: 0,
+							inspectionError: "permission-denied",
+						},
+					],
+				},
+			],
+		};
+
+		expect(() =>
+			parseGlobalDocument(JSON.stringify(invalidBaseRepoDocument)),
+		).toThrow("invalid workbranch global list document");
+	});
+
 	it("carries the plan summary and defaults it to empty when the CLI omits it", () => {
 		const project = document.projects.at(0);
 		const task = project?.tasks.at(0);
@@ -161,6 +325,54 @@ describe("ACL", () => {
 		expect(model.summary.taskCount).toBe(1);
 		expect(model.summary.active).toBe(1);
 		expect(model.summary.notifications).toBe(2);
+	});
+
+	it.each([
+		null,
+		"git-read-failed",
+	] as const)("counts a taskless project with visible base rows (%s)", (inspectionError) => {
+		const baseOnly = {
+			name: "base-only",
+			root: "/tmp/base-only",
+			tasks: [],
+			baseRepos: [
+				{
+					name: "backend",
+					baseBranch: "main",
+					branch: inspectionError === null ? "main" : "",
+					present: true,
+					dirty: false,
+					changedFiles: 0,
+					remoteAvailable: inspectionError === null,
+					ahead: 0,
+					behind: 0,
+					inspectionError,
+				},
+			],
+		};
+		expect(
+			buildMenuModel({ projects: [baseOnly], errors: [] }).summary,
+		).toMatchObject({
+			projectCount: 1,
+			taskCount: 0,
+			active: 0,
+			notifications: 0,
+		});
+		const state = mapGlobalDocumentToState(document);
+		const mixed = buildMenuModel({
+			...state,
+			projects: [
+				...state.projects,
+				baseOnly,
+				{ name: "empty", root: "/tmp/empty", tasks: [], baseRepos: [] },
+			],
+		});
+		expect(mixed.summary).toMatchObject({
+			projectCount: 2,
+			taskCount: 1,
+			active: 1,
+			notifications: 2,
+		});
 	});
 
 	it("rolls up non-empty projects without retaining presentation groups", () => {

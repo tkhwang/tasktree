@@ -57,11 +57,28 @@ describe("App shell settings wiring", () => {
 		expect(appSource).toContain("buildMainViewModel");
 		expect(appSource).toContain("<StageBoard");
 		expect(appSource).toContain("useRepoNotes");
+		expect(appSource).toContain("baseRows={main.baseRows}");
 		expect(appSource).toContain("groups={main.stageGroups}");
 		expect(appSource).toContain("idleRows={main.idleRows}");
 		expect(appSource).not.toContain("RepositoryQueue");
 		expect(appSource).not.toContain("ProjectGroup");
 		expect(appSource).toContain("{model.errors.map");
+	});
+
+	it("includes the base repository row and action style contracts", () => {
+		const css = readCssContract("src/style.css");
+
+		expect(css).toContain(".stage-base-row");
+		expect(css).toContain('.stage-base-action[data-action="pull"]');
+		expect(css).toMatch(
+			/\.stage-base-row\s*\{[^}]*grid-template-columns:\s*10px minmax\(68px, 0\.8fr\) minmax\(0, 1fr\)\s*minmax\(0, 1\.5fr\) auto/s,
+		);
+		expect(css).toMatch(
+			/\.stage-base-facts\s*\{[^}]*min-width:\s*0[^}]*overflow:\s*hidden[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s,
+		);
+		expect(css).toMatch(
+			/@media \(max-width: 480px\)\s*\{[\s\S]*?\.stage-base-row\s*\{[^}]*grid-template-columns:\s*10px minmax\(64px, 0\.8fr\) minmax\(0, 1fr\) auto[^}]*\}[\s\S]*?\.stage-base-facts\s*\{[^}]*grid-column:\s*2 \/ 4[^}]*grid-row:\s*2[^}]*text-align:\s*left/s,
+		);
 	});
 
 	it("advances the activity reload token after successful app refreshes", () => {

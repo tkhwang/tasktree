@@ -3,7 +3,9 @@ import type { GlobalState } from "../src/domain/model";
 import { startWorkspaceMonitor } from "../src/infrastructure/workspaceMonitor";
 
 const FIRST_STATE: GlobalState = {
-	projects: [{ name: "workbranch", root: "/tmp/workbranch", tasks: [] }],
+	projects: [
+		{ name: "workbranch", root: "/tmp/workbranch", tasks: [], baseRepos: [] },
+	],
 	errors: [],
 };
 
@@ -22,6 +24,7 @@ const SECOND_STATE: GlobalState = {
 					plans: [],
 				},
 			],
+			baseRepos: [],
 		},
 	],
 	errors: [],
@@ -92,8 +95,94 @@ describe("startWorkspaceMonitor", () => {
 		await monitor.settle();
 		monitor.stop();
 
-		expect(watchedRoots).toEqual([["/tmp/workbranch"]]);
+		expect(watchedRoots).toEqual([["/tmp/workbranch"], ["/tmp/workbranch"]]);
 		expect(rendered).toEqual([FIRST_STATE, SECOND_STATE]);
+	});
+
+	it("reconciles changed watch scope without a refresh loop", async () => {
+		let rootChanged: ((root: string) => void) | undefined;
+		let refreshCalls = 0;
+		let watchCalls = 0;
+		const monitor = await startWorkspaceMonitor({
+			refresh: () => {
+				refreshCalls += 1;
+				if (refreshCalls > 2) throw new Error("watch refresh loop");
+				return Promise.resolve(FIRST_STATE);
+			},
+			onState: () => undefined,
+			onError: (error) => {
+				throw error;
+			},
+			watchRoots: () => {
+				watchCalls += 1;
+				if (watchCalls === 1) rootChanged?.("/tmp/workbranch");
+				return Promise.resolve();
+			},
+			onRootChanged: (callback) => {
+				rootChanged = callback;
+				return Promise.resolve(() => {
+					rootChanged = undefined;
+				});
+			},
+		});
+		await monitor.settle();
+		monitor.stop();
+		expect(refreshCalls).toBe(2);
+		expect(watchCalls).toBe(2);
+	});
+
+	it("does not reconcile retained data after a failed root refresh", async () => {
+		let rootChanged: ((root: string) => void) | undefined;
+		let watchCalls = 0;
+		const errors: unknown[] = [];
+		const rendered: GlobalState[] = [];
+		const failure = new Error("root unavailable");
+		const monitor = await startWorkspaceMonitor({
+			refresh: () => Promise.resolve(FIRST_STATE),
+			refreshRoot: () => Promise.reject(failure),
+			onState: (state) => {
+				rendered.push(state);
+			},
+			onError: (error) => {
+				errors.push(error);
+			},
+			watchRoots: () => {
+				watchCalls += 1;
+				return Promise.resolve();
+			},
+			onRootChanged: (callback) => {
+				rootChanged = callback;
+				return Promise.resolve(() => {
+					rootChanged = undefined;
+				});
+			},
+		});
+		rootChanged?.("/tmp/workbranch");
+		await monitor.settle();
+		monitor.stop();
+		expect(watchCalls).toBe(1);
+		expect(errors).toEqual([failure]);
+		expect(rendered.at(-1)?.projects).toEqual(FIRST_STATE.projects);
+		expect(rendered.at(-1)?.errors[0]?.message).toBe("root unavailable");
+	});
+
+	it("removes its early listener when startup rejects", async () => {
+		let unlistened = false;
+		await expect(
+			startWorkspaceMonitor({
+				refresh: () => Promise.reject(new Error("startup failed")),
+				onState: () => undefined,
+				onError: (error) => {
+					throw error;
+				},
+				watchRoots: () => Promise.resolve(),
+				onRootChanged: () =>
+					Promise.resolve(() => {
+						unlistened = true;
+					}),
+			}),
+		).rejects.toThrow("startup failed");
+		expect(unlistened).toBe(true);
 	});
 
 	it("coalesces root changes while refresh is in flight", async () => {
@@ -252,7 +341,12 @@ describe("startWorkspaceMonitor", () => {
 	});
 
 	it("refreshes and merges only the changed root", async () => {
-		const betaProject = { name: "beta", root: "/tmp/beta", tasks: [] };
+		const betaProject = {
+			name: "beta",
+			root: "/tmp/beta",
+			tasks: [],
+			baseRepos: [],
+		};
 		const initial: GlobalState = {
 			projects: [firstProject(FIRST_STATE), betaProject],
 			errors: [],
@@ -261,6 +355,7 @@ describe("startWorkspaceMonitor", () => {
 			name: "workbranch",
 			root: "/tmp/workbranch",
 			tasks: firstProject(SECOND_STATE).tasks,
+			baseRepos: [],
 		};
 		const rendered: GlobalState[] = [];
 		const rootCalls: string[] = [];
@@ -304,7 +399,7 @@ describe("startWorkspaceMonitor", () => {
 			},
 			refreshRoot: (root) => {
 				rootCalls.push(root);
-				return Promise.resolve({ name: root, root, tasks: [] });
+				return Promise.resolve({ name: root, root, tasks: [], baseRepos: [] });
 			},
 			onState: () => undefined,
 			onError: (error) => {
@@ -372,11 +467,17 @@ describe("startWorkspaceMonitor", () => {
 	});
 
 	it("merges a root refresh into the latest externally applied state", async () => {
-		const betaBefore = { name: "beta", root: "/tmp/beta", tasks: [] };
+		const betaBefore = {
+			name: "beta",
+			root: "/tmp/beta",
+			tasks: [],
+			baseRepos: [],
+		};
 		const betaAfter = {
 			name: "beta",
 			root: "/tmp/beta",
 			tasks: firstProject(SECOND_STATE).tasks,
+			baseRepos: [],
 		};
 		const initial: GlobalState = {
 			projects: [firstProject(FIRST_STATE), betaBefore],

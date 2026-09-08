@@ -2,6 +2,44 @@
   "schemaVersion": 1,
   "project": "fullstack",
   "root": "/tmp/fullstack",
+  "baseRepos": [
+    {
+      "name": "backend",
+      "baseBranch": "master",
+      "branch": "master",
+      "present": true,
+      "dirty": false,
+      "changedFiles": 0,
+      "remoteAvailable": true,
+      "ahead": 0,
+      "behind": 0,
+      "inspectionError": null
+    },
+    {
+      "name": "frontend",
+      "baseBranch": "master",
+      "branch": "master",
+      "present": true,
+      "dirty": true,
+      "changedFiles": 1,
+      "remoteAvailable": true,
+      "ahead": 0,
+      "behind": 1,
+      "inspectionError": null
+    },
+    {
+      "name": "api",
+      "baseBranch": "master",
+      "branch": "",
+      "present": false,
+      "dirty": false,
+      "changedFiles": 0,
+      "remoteAvailable": false,
+      "ahead": 0,
+      "behind": 0,
+      "inspectionError": "git-read-failed"
+    }
+  ],
   "tasks": [
     {
       "name": "feat-login",
