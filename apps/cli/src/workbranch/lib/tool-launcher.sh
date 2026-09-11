@@ -80,6 +80,146 @@ resolve_task_repo_path() {
   RESOLVED_PATH=$(canonical_path "$repo_path") || die "task repo not found: $task/$repo"
 }
 
+ide_application_roots() {
+  if [ -n "${WORKBRANCH_TEST_APPLICATIONS_DIR:-}" ]; then
+    printf '%s\n' "$WORKBRANCH_TEST_APPLICATIONS_DIR"
+    return 0
+  fi
+  printf '%s\n' "/Applications"
+  [ -z "${HOME:-}" ] || printf '%s\n' "$HOME/Applications"
+}
+
+# Bundled CLI path (relative to an Applications directory) for VS Code-family IDE
+# presets. `open -na <App> --args ...` launches a throwaway instance that hands the
+# path to the running IDE and quits, which leaves macOS focus on the caller; the
+# bundled CLI hands the path over directly, so an already-open repo window is
+# focused, and run_ide_bundled_cli then brings the IDE to the front.
+ide_bundled_cli_relative_path() {
+  case "$1" in
+    'open -na "Visual Studio Code" --args --new-window') printf '%s' 'Visual Studio Code.app/Contents/Resources/app/bin/code' ;;
+    'open -na Cursor --args --new-window'|'open -na "Cursor" --args --new-window') printf '%s' 'Cursor.app/Contents/Resources/app/bin/cursor' ;;
+    'open -na "Antigravity IDE" --args --new-window') printf '%s' 'Antigravity IDE.app/Contents/Resources/app/bin/antigravity-ide' ;;
+    'open -na Windsurf --args --new-window'|'open -na "Windsurf" --args --new-window') printf '%s' 'Windsurf.app/Contents/Resources/app/bin/windsurf' ;;
+    *) return 1 ;;
+  esac
+}
+
+resolve_ide_bundled_cli() {
+  bundled_cli_relative=$(ide_bundled_cli_relative_path "$1") || return 1
+  while IFS= read -r applications_root; do
+    [ -n "$applications_root" ] || continue
+    bundled_cli="$applications_root/$bundled_cli_relative"
+    if [ -x "$bundled_cli" ]; then
+      printf '%s' "$bundled_cli"
+      return 0
+    fi
+  done <<EOF
+$(ide_application_roots)
+EOF
+  return 1
+}
+
+ide_app_is_running() {
+  bundle_path=$1
+  command -v lsappinfo >/dev/null 2>&1 || return 1
+  [ -n "$(lsappinfo find "bundlepath=$bundle_path" 2>/dev/null)" ]
+}
+
+# `lsappinfo front` can print the ASN as `ASN:0x0-a71a71:` (macOS Sonoma and
+# later) while `lsappinfo info` only accepts `ASN:0x0-0xa71a71:`; insert the
+# missing `0x` after the dash and leave already-prefixed ASNs unchanged.
+normalize_lsappinfo_asn() {
+  asn=$1
+  case "$asn" in
+    ASN:*-*) ;;
+    *) printf '%s' "$asn"; return 0 ;;
+  esac
+  asn_high=${asn%%-*}
+  asn_low=${asn#*-}
+  case "$asn_low" in
+    0x*) printf '%s' "$asn" ;;
+    *) printf '%s-0x%s' "$asn_high" "$asn_low" ;;
+  esac
+}
+
+ide_app_is_frontmost() {
+  bundle_path=$1
+  command -v lsappinfo >/dev/null 2>&1 || return 1
+  frontmost_asn=$(normalize_lsappinfo_asn "$(lsappinfo front 2>/dev/null)")
+  [ -n "$frontmost_asn" ] || return 1
+  [ "$(lsappinfo info -only bundlepath "$frontmost_asn" 2>/dev/null)" = "\"LSBundlePath\"=\"$bundle_path\"" ]
+}
+
+# Brings the running IDE forward and holds it there briefly. macOS can still hand
+# focus back to the caller a moment after the helper instance exits, which would
+# undo a single activation, so the frontmost app is re-checked a few times and
+# `open -a` is repeated only while the IDE is not in front.
+activate_running_ide_bundle() {
+  bundle_path=$1
+  activation_checks=0
+  while [ $activation_checks -lt 4 ]; do
+    ide_app_is_frontmost "$bundle_path" || open -a "$bundle_path" || :
+    activation_checks=$((activation_checks + 1))
+    [ $activation_checks -ge 4 ] || sleep 0.25
+  done
+}
+
+# Counts main-process instances of the app bundle: the running IDE plus any
+# short-lived helper instance the bundled CLI spawned to hand the path over.
+# Renderer/GPU helpers live under Contents/Frameworks and do not match.
+ide_bundle_main_process_count() {
+  bundle_path=$1
+  main_process_count=0
+  while IFS= read -r process_command; do
+    case "$process_command" in
+      "$bundle_path/Contents/MacOS/"*) main_process_count=$((main_process_count + 1)) ;;
+    esac
+  done <<EOF
+$(ps -axo command= 2>/dev/null)
+EOF
+  printf '%s' "$main_process_count"
+}
+
+# Polls until only the running IDE's main process remains. Each poll costs the
+# 50ms sleep plus one `ps` scan (tens of ms), so 15 polls bound the wait at
+# roughly two seconds; the helper normally exits within about half a second.
+# When `ps` shows no main process at all, the helper cannot be observed (for
+# example the app was launched through a different path), so wait a fixed
+# interval instead of activating while the helper may still be alive.
+wait_for_ide_bundled_cli_handoff() {
+  bundle_path=$1
+  if [ "$(ide_bundle_main_process_count "$bundle_path")" -eq 0 ]; then
+    sleep 0.6
+    return 0
+  fi
+  handoff_attempts=0
+  while [ "$(ide_bundle_main_process_count "$bundle_path")" -gt 1 ] && [ $handoff_attempts -lt 15 ]; do
+    sleep 0.05
+    handoff_attempts=$((handoff_attempts + 1))
+  done
+}
+
+# The bundled CLI focuses the repo window through a short-lived helper instance;
+# that helper briefly becomes the active app and its exit hands macOS focus back
+# to the caller, so an already-running IDE is activated through LaunchServices
+# after the helper is gone. A fresh launch already comes forward, and a bare
+# `open -a` around it could restore the previous session's windows instead.
+run_ide_bundled_cli() {
+  ide_cli=$1
+  path=$2
+  ide_bundle=${ide_cli%/Contents/Resources/app/bin/*}
+  ide_was_running=0
+  ! ide_app_is_running "$ide_bundle" || ide_was_running=1
+  (
+    cd "$path" || exit 1
+    "$ide_cli" --new-window "$path" || exit 1
+    if [ "$ide_was_running" = "1" ]; then
+      wait_for_ide_bundled_cli_handoff "$ide_bundle"
+      activate_running_ide_bundle "$ide_bundle"
+    fi
+  )
+}
+
 run_tool_command() {
   tool_label=$1
   command=$2
@@ -93,6 +233,10 @@ run_tool_command() {
         'open -a "Antigravity IDE"'|'open -na "Antigravity IDE"') command='open -na "Antigravity IDE" --args --new-window' ;;
         'open -a Windsurf'|'open -na Windsurf'|'open -a "Windsurf"'|'open -na "Windsurf"') command='open -na Windsurf --args --new-window' ;;
       esac
+      if bundled_cli_path=$(resolve_ide_bundled_cli "$command"); then
+        run_ide_bundled_cli "$bundled_cli_path" "$path"
+        return $?
+      fi
       ;;
   esac
   (

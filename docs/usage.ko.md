@@ -138,7 +138,7 @@ workbranch ide login         # IDE로 repo worktree 열기
 workbranch terminal login    # terminal로 task root 열기
 ```
 
-내장 macOS IDE preset은 VS Code 계열 app에서 repo path마다 별도 IDE window를 엽니다. config directive는 `IDE <command>`입니다. preset 순서는 Cursor, Antigravity, Windsurf, Zed, Sublime Text, Xcode, VS Code입니다. `IDE open -a Cursor`, `IDE open -a "Antigravity IDE"`, `IDE open -a "Visual Studio Code"`, `IDE open -a Windsurf` 형태는 실행 시 `open -na ... --args --new-window`로 보정됩니다. Zed는 검증 전까지 `open -na Zed`로 유지합니다.
+내장 macOS IDE preset은 VS Code 계열 app에서 repo path마다 별도 IDE window를 엽니다. config directive는 `IDE <command>`입니다. preset 순서는 Cursor, Antigravity, Windsurf, Zed, Sublime Text, Xcode, VS Code입니다. VS Code 계열 preset(Cursor, Antigravity, Windsurf, VS Code)은 `workbranch ide` 실행 시 설치된 app 안의 CLI(`<App>.app/Contents/Resources/app/bin/<cli>`, `/Applications` 다음 `~/Applications` 순으로 탐색)를 `<cli> --new-window <repo-path>`로 실행합니다. 해당 IDE가 이미 실행 중이면 CLI가 띄운 임시 helper 인스턴스가 종료된 뒤 `open -a <App>.app`으로 앱을 앞으로 가져옵니다. 그 helper가 종료되면서 macOS 포커스가 호출한 쪽으로 돌아가고, 이미 IDE의 key window인 repo 창만 focus해서는 앱이 앞으로 나오지 않기 때문입니다. 이미 열린 repo는 기존 window가 focus되면서 IDE가 앞으로 나오고, 열리지 않은 repo는 새 window로 열리며, IDE가 실행 중이 아니면 새로 시작합니다. 이 경로는 번들 CLI가 끝나기를 기다린 뒤 활성화까지 확인하므로 `workbranch ide`가 repo당 약 3~4초 뒤에 반환됩니다. repo 창 자체는 약 1초 안에 나타납니다. 번들 CLI를 찾지 못하거나 실행 권한이 없으면 설정된 `open -na ... --args --new-window` 명령을 그대로 실행합니다. `IDE open -a Cursor`, `IDE open -a "Antigravity IDE"`, `IDE open -a "Visual Studio Code"`, `IDE open -a Windsurf` 형태도 같은 방식으로 보정됩니다. Zed는 검증 전까지 `open -na Zed`로 유지합니다.
 
 필요하면 repo 하나로 제한합니다.
 
