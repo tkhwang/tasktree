@@ -123,7 +123,8 @@ helper가 활성 app에서 물러나며 발생하는 "이전 app으로 포커스
 - `ide_app_is_running <bundle-path>`: `lsappinfo`가 없으면 실패, 있으면 `lsappinfo find bundlepath=<bundle-path>` 출력이 비어 있지 않을 때 성공.
 - `ide_bundle_main_process_count <bundle-path>`: `ps -axo command=` 출력 중 `<bundle-path>/Contents/MacOS/`로 시작하는 줄 수.
 - `wait_for_ide_bundled_cli_handoff <bundle-path>`: 첫 조회가 0이면 0.6초 고정 대기, 아니면 위 개수가 1 이하가 될 때까지 50ms × 최대 15회 대기.
-- `ide_app_is_frontmost <bundle-path>`: `lsappinfo front`의 ASN을 `lsappinfo info -only bundlepath <asn>`로 조회해 `"LSBundlePath"="<bundle-path>"`와 완전 일치하면 성공.
+- `normalize_lsappinfo_asn <asn>`: `ASN:0x0-a71a71:`처럼 대시 뒤 `0x`가 빠진 ASN(macOS Sonoma 이후 `lsappinfo front` 출력)에 `0x`를 넣는다. 이미 `0x`가 있거나 ASN 형식이 아니면 그대로 둔다. `lsappinfo info`는 `0x` 형식만 받으므로 정규화 없이는 전면 확인이 항상 실패해 `open -a`가 4회 모두 실행된다.
+- `ide_app_is_frontmost <bundle-path>`: `lsappinfo front`의 ASN을 정규화한 뒤 `lsappinfo info -only bundlepath <asn>`로 조회해 `"LSBundlePath"="<bundle-path>"`와 완전 일치하면 성공.
 - `activate_running_ide_bundle <bundle-path>`: 250ms 간격 4회 동안 `ide_app_is_frontmost`가 실패할 때만 `open -a <bundle-path> || :`.
 - `run_ide_bundled_cli <cli> <path>`: CLI 경로에서 bundle 경로를 잘라내고(`${ide_cli%/Contents/Resources/app/bin/*}`), 실행 여부를 먼저 기록한 뒤 `cd "$path"` → `"$ide_cli" --new-window "$path"` → 실행 중이었으면 `wait_for_ide_bundled_cli_handoff` 후 `activate_running_ide_bundle`.
 - `run_tool_command ide ...`: 기존 legacy 정규화 → `resolve_ide_bundled_cli` 성공 시 `run_ide_bundled_cli` 실행 후 return. 실패 시 기존 `sh -c "$command \"$WORKBRANCH_TOOL_PATH\""` 경로.
@@ -141,6 +142,7 @@ helper가 활성 app에서 물러나며 발생하는 "이전 app으로 포커스
 - `append_fake_lsappinfo_script <fake-bin>`: fake `lsappinfo`. `find`는 `WORKBRANCH_FAKE_IDE_RUNNING=1`일 때만 ASN을 출력하고, `front`/`info -only bundlepath`는 처음 `WORKBRANCH_FAKE_IDE_NOT_FRONT_CALLS`(기본 1)회의 `front` 호출까지는 호출 app(`/Applications/Caller.app`)을, 그 뒤로는 `WORKBRANCH_FAKE_IDE_BUNDLE`을 전면으로 보고한다(`front` 호출 수는 `WORKBRANCH_FAKE_LSAPPINFO_STATE`에 기록). 인자는 `WORKBRANCH_FAKE_LSAPPINFO_LOG`에 남긴다. CI(ubuntu)에는 실제 `lsappinfo`가 없으므로 번들 CLI 테스트는 모두 이 fake를 PATH에 둔다.
 - `test_ide_bundled_cli_activates_running_app_after_focusing_repo`: 실행 중(fake) → 로그가 정확히 2행이고 1행 `<repo>|2|--new-window <repo>`, 2행 `<repo>|2|-a <apps-root>/Visual Studio Code.app`(완전 일치 비교), fake `lsappinfo`가 `find bundlepath=<apps-root>/Visual Studio Code.app`와 `info -only bundlepath <caller-asn>`을 받았고 `front`를 4회 호출했으며(첫 확인 뒤 IDE가 전면이라 재활성화 없음), fake `ps`가 3회 호출됐다(helper가 보이는 2회 + 사라진 1회).
 - `test_ide_bundled_cli_reactivates_when_focus_returns_to_caller`: 실행 중 + `WORKBRANCH_FAKE_IDE_NOT_FRONT_CALLS=2` → 로그 3행(CLI, `-a`, `-a`). 포커스가 호출 app으로 되돌아간 경우 재활성화하는 계약을 고정한다.
+- `test_ide_bundled_cli_normalizes_sonoma_front_asn_before_bundle_lookup`: `WORKBRANCH_FAKE_LSAPPINFO_FRONT_FORMAT=sonoma`로 fake `front`가 `ASN:0x0-1:` 형식을 내고 fake `info`는 `0x` 형식만 받는 상태 → 로그 2행(CLI, `-a` 1회)이고 `lsappinfo` 로그의 `info` 호출 ASN이 모두 `0x` 형식이다. 정규화가 없으면 `open -a`가 4회 실행돼 실패한다. fake `info`는 인식하지 못하는 ASN에 실패(exit 1)해 실제 도구의 거부를 흉내 낸다.
 - `test_ide_bundled_cli_skips_activation_when_app_not_running`: 미실행(fake) → 로그는 CLI 호출 1행과 완전 일치, `ps` 카운터 파일이 생성되지 않는다(대기 없음).
 - `test_ide_non_vscode_family_preset_keeps_configured_open_command`: `IDE open -na Zed` + fake Zed bundle + 실행 중(fake) → 로그는 `<repo>|3|-na Zed <repo>` 1행. Zed/Sublime Text/Xcode는 규칙 밖임을 고정한다.
 - `test_ide_vscode_family_preset_falls_back_to_open_when_bundled_cli_missing`(기존 `test_ide_legacy_macos_app_preset_opens_new_instance_per_repo` 개명): 빈 `WORKBRANCH_TEST_APPLICATIONS_DIR`에서 기존 `open -na ... --args --new-window` 동작 유지.
@@ -185,7 +187,8 @@ docs/plans/0058-ide-launcher-focus-existing-window-bundled-cli.md
 - [x] Red(순서): 활성화 테스트의 기대 순서를 "CLI → `open -a`"로 바꿔 기존 구현("`open -a` → CLI")에서 실패하는 것 확인.
 - [x] Green(순서): `ide_bundle_main_process_count` + `wait_for_ide_bundled_cli_handoff` 추가, `run_ide_bundled_cli` 순서 변경, 재빌드 후 IDE launcher 테스트 7개(`test_generated_workbranch_is_up_to_date` 포함) 통과.
 - [x] Red(재확인): `test_ide_bundled_cli_reactivates_when_focus_returns_to_caller`가 "`-a` 호출 1회만"으로 실패하는 것 확인.
-- [x] Green(재확인): `ide_app_is_frontmost` + `activate_running_ide_bundle` 추가, 재빌드 후 IDE launcher 테스트 9개(`test_generated_workbranch_is_up_to_date` 포함) 통과. 리뷰가 지적한 변이 4종(`open -a` 따옴표 누락, bundle 경로 파생 오류, 대기 제거, `lsappinfo` 인자 오류)과 재활성화 루프 제거 변이가 모두 테스트 실패로 검출됨을 확인.
+- [x] Green(재확인): `ide_app_is_frontmost` + `activate_running_ide_bundle` 추가, 재빌드 후 IDE launcher 테스트 9개(`test_generated_workbranch_is_up_to_date` 포함) 통과.
+- [x] Red/Green(ASN 정규화, 사용자 요청): `test_ide_bundled_cli_normalizes_sonoma_front_asn_before_bundle_lookup`가 기존 빌드에서 "`open -a` 4회"로 실패하는 것을 확인한 뒤 `normalize_lsappinfo_asn` 추가, 재빌드(두 생성 파일 동일) 후 IDE launcher 테스트 10개 통과. 정규화를 제거한 변이가 이 테스트에서 실패함을 확인. 이 머신(macOS 26.7)의 `lsappinfo info`는 `0x` 유무를 모두 받아 실제 거부는 재현하지 못했고, Sonoma 계열의 거부 동작은 fake로 흉내 냈다. 리뷰가 지적한 변이 4종(`open -a` 따옴표 누락, bundle 경로 파생 오류, 대기 제거, `lsappinfo` 인자 오류)과 재활성화 루프 제거 변이가 모두 테스트 실패로 검출됨을 확인.
 
 ### Task 2: 문서 동기화
 

@@ -2718,10 +2718,27 @@ ide_app_is_running() {
   [ -n "$(lsappinfo find "bundlepath=$bundle_path" 2>/dev/null)" ]
 }
 
+# `lsappinfo front` can print the ASN as `ASN:0x0-a71a71:` (macOS Sonoma and
+# later) while `lsappinfo info` only accepts `ASN:0x0-0xa71a71:`; insert the
+# missing `0x` after the dash and leave already-prefixed ASNs unchanged.
+normalize_lsappinfo_asn() {
+  asn=$1
+  case "$asn" in
+    ASN:*-*) ;;
+    *) printf '%s' "$asn"; return 0 ;;
+  esac
+  asn_high=${asn%%-*}
+  asn_low=${asn#*-}
+  case "$asn_low" in
+    0x*) printf '%s' "$asn" ;;
+    *) printf '%s-0x%s' "$asn_high" "$asn_low" ;;
+  esac
+}
+
 ide_app_is_frontmost() {
   bundle_path=$1
   command -v lsappinfo >/dev/null 2>&1 || return 1
-  frontmost_asn=$(lsappinfo front 2>/dev/null)
+  frontmost_asn=$(normalize_lsappinfo_asn "$(lsappinfo front 2>/dev/null)")
   [ -n "$frontmost_asn" ] || return 1
   [ "$(lsappinfo info -only bundlepath "$frontmost_asn" 2>/dev/null)" = "\"LSBundlePath\"=\"$bundle_path\"" ]
 }

@@ -259,6 +259,8 @@ SCRIPT
 # - `front` / `info -only bundlepath <asn>` report the IDE bundle (WORKBRANCH_FAKE_IDE_BUNDLE) as
 #   frontmost except for the first WORKBRANCH_FAKE_IDE_NOT_FRONT_CALLS (default 1) `front` calls,
 #   which report an unrelated caller app; `front` calls are counted in WORKBRANCH_FAKE_LSAPPINFO_STATE.
+# - With WORKBRANCH_FAKE_LSAPPINFO_FRONT_FORMAT=sonoma, `front` omits the `0x` after the dash
+#   (`ASN:0x0-1:`), as macOS Sonoma and later do. `info` only accepts the `0x` form, like the real tool.
 append_fake_lsappinfo_script() {
   fake_bin=$1
   mkdir -p "$fake_bin"
@@ -277,17 +279,23 @@ case "$1" in
     [ ! -f "${WORKBRANCH_FAKE_LSAPPINFO_STATE:?}" ] || front_calls=$(cat "$WORKBRANCH_FAKE_LSAPPINFO_STATE")
     front_calls=$((front_calls + 1))
     printf '%s' "$front_calls" > "$WORKBRANCH_FAKE_LSAPPINFO_STATE"
-    if [ "$front_calls" -le "${WORKBRANCH_FAKE_IDE_NOT_FRONT_CALLS:-1}" ]; then
-      printf 'ASN:0x0-0xca11e7:\n'
+    if [ "${WORKBRANCH_FAKE_LSAPPINFO_FRONT_FORMAT:-}" = "sonoma" ]; then
+      asn_low_prefix=""
     else
-      printf 'ASN:0x0-0x1:\n'
+      asn_low_prefix="0x"
+    fi
+    if [ "$front_calls" -le "${WORKBRANCH_FAKE_IDE_NOT_FRONT_CALLS:-1}" ]; then
+      printf 'ASN:0x0-%sca11e7:\n' "$asn_low_prefix"
+    else
+      printf 'ASN:0x0-%s1:\n' "$asn_low_prefix"
     fi
     ;;
   info)
     # Invoked as `lsappinfo info -only bundlepath <asn>`; the ASN is the fourth argument.
     case "$4" in
       ASN:0x0-0x1:) printf '"LSBundlePath"="%s"\n' "${WORKBRANCH_FAKE_IDE_BUNDLE:?}" ;;
-      *) printf '"LSBundlePath"="/Applications/Caller.app"\n' ;;
+      ASN:0x0-0xca11e7:) printf '"LSBundlePath"="/Applications/Caller.app"\n' ;;
+      *) exit 1 ;;
     esac
     ;;
 esac
@@ -411,6 +419,43 @@ CONFIG
   [ "$(cat "$TMP_ROOT/lsappinfo.front")" = "4" ] || fail "expected 4 frontmost checks; got: $(cat "$TMP_ROOT/lsappinfo.front" 2>/dev/null)"
   # The fake ps shows the helper for two polls, so the wait must have polled a third time before activating.
   [ "$(cat "$TMP_ROOT/ps.calls")" = "3" ] || fail "expected the handoff wait to poll ps 3 times; got: $(cat "$TMP_ROOT/ps.calls" 2>/dev/null)"
+}
+
+test_ide_bundled_cli_normalizes_sonoma_front_asn_before_bundle_lookup() {
+  new_fixture
+  project="$FIXTURE_PROJECT"
+  cd "$project" || return 1
+  canonical_project=$(pwd -P)
+  fake_bin="$TMP_ROOT/bin"
+  append_fake_launcher_open_script "$fake_bin"
+  append_fake_lsappinfo_script "$fake_bin"
+  append_fake_ps_script "$fake_bin"
+  apps_root="$TMP_ROOT/apps"
+  append_fake_ide_bundle_cli "$apps_root" "Visual Studio Code.app/Contents/Resources/app/bin/code"
+  export WORKBRANCH_FAKE_TOOL_LOG="$TMP_ROOT/ide.log"
+
+  cat >> "$project/.workbranch.config" <<'CONFIG'
+IDE open -na "Visual Studio Code" --args --new-window
+CONFIG
+
+  run_expect_success "$WORKBRANCH" init >/dev/null
+  printf '\n\n' | run_expect_success "$WORKBRANCH" add login >/dev/null
+
+  # macOS Sonoma and later print `lsappinfo front` as `ASN:0x0-1:`; `lsappinfo info` rejects that form,
+  # so without normalization every frontmost check fails and the IDE is re-activated four times.
+  PATH="$fake_bin:$PATH" WORKBRANCH_FAKE_IDE_RUNNING=1 WORKBRANCH_FAKE_LSAPPINFO_FRONT_FORMAT=sonoma \
+    WORKBRANCH_FAKE_LSAPPINFO_LOG="$TMP_ROOT/lsappinfo.log" \
+    WORKBRANCH_FAKE_LSAPPINFO_STATE="$TMP_ROOT/lsappinfo.front" WORKBRANCH_FAKE_IDE_BUNDLE="$apps_root/Visual Studio Code.app" \
+    WORKBRANCH_FAKE_PS_COUNTER="$TMP_ROOT/ps.calls" \
+    WORKBRANCH_TEST_APPLICATIONS_DIR="$apps_root" WORKBRANCH_TEST_PLATFORM=macos run_expect_success "$WORKBRANCH" ide login --repo frontend >/dev/null
+  expected_open_call="$canonical_project/login/frontend|2|-a $apps_root/Visual Studio Code.app"
+  [ "$(sed -n 2p "$WORKBRANCH_FAKE_TOOL_LOG")" = "$expected_open_call" ] || fail "expected second launcher call '$expected_open_call'; got: $(sed -n 2p "$WORKBRANCH_FAKE_TOOL_LOG")"
+  [ "$(wc -l < "$WORKBRANCH_FAKE_TOOL_LOG" | tr -d ' ')" = "2" ] || fail "expected exactly two launcher calls; got: $(cat "$WORKBRANCH_FAKE_TOOL_LOG")"
+  lsappinfo_log=$(cat "$TMP_ROOT/lsappinfo.log")
+  assert_contains "$lsappinfo_log" "info -only bundlepath ASN:0x0-0xca11e7:"
+  assert_contains "$lsappinfo_log" "info -only bundlepath ASN:0x0-0x1:"
+  assert_not_contains "$lsappinfo_log" "info -only bundlepath ASN:0x0-ca11e7:"
+  assert_not_contains "$lsappinfo_log" "info -only bundlepath ASN:0x0-1:"
 }
 
 test_ide_bundled_cli_reactivates_when_focus_returns_to_caller() {
