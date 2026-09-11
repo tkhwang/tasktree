@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.23.0](https://github.com/tkhwang/workbranch/compare/v2.22.0...v2.23.0) (2026-09-11)
+
+
+### Features
+
+* **cli:** support bundled ide cli for focus ([924a039](https://github.com/tkhwang/workbranch/commit/924a039357ea7303d7b3e4973423f0036f31ab5e))
+* **cli:** support bundled ide cli for focus ([c8b56c5](https://github.com/tkhwang/workbranch/commit/c8b56c59d2d4533095ab1fc80f74fe0f273583c1))
+
+
+### Bug Fixes
+
+* **cli:** normalize lsappinfo asn for sonoma ([68b172b](https://github.com/tkhwang/workbranch/commit/68b172b489529831a0c734773cd29dfa30b42995))
+
 ## [2.22.0](https://github.com/tkhwang/workbranch/compare/v2.21.0...v2.22.0) (2026-09-08)
 
 
